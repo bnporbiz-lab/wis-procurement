@@ -662,7 +662,9 @@ const MODULES = [
   {id:"suppliers",  label:"Suppliers",         grp:"Tracking",  icon:'<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/>'},
   {id:"budget",     label:"Budget",            grp:"Tracking",  icon:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'},
   {id:"purchaseorder",label:"Purchase Order",  grp:"Tracking",  icon:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'},
+  /* Stock Management removed from sidebar per user request (data & routes preserved for backups; re-enable by uncommenting):
   {id:"stock",      label:"Stock Management",  grp:"Tracking",  icon:'<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>'},
+  */
   {id:"reports",    label:"Reports",           grp:"Tools",     icon:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'},
   {id:"backup",     label:"Backup & Restore",  grp:"Tools",     icon:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'},
   {id:"users",      label:"User Management",   grp:"Admin",     icon:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>', adminOnly:true},
@@ -794,9 +796,38 @@ function iframePost(url, fields){
     setTimeout(finish, 8000); // fallback: assume delivered
   });
 }
+// Count the "real" records in the local DB — used to guard against pushing an empty DB over a populated Sheet
+function localRecordCount(){
+  try{
+    const b=dbForSync();
+    let n=0;
+    ["procurement","suppliers","po","stock","construction"].forEach(k=>{ if(Array.isArray(b[k])) n+=b[k].length; });
+    return n;
+  }catch(_){ return 0; }
+}
 async function syncPush(silent){
   const cfg=syncCfg(); if(!cfg.url){ if(!silent)toast("Sync not set up","Add your Apps Script URL in Settings","err"); return false; }
-  if(_syncState.busy) return false; _syncState.busy=true; setSyncBadge("syncing","Saving to Sheet…");
+  if(_syncState.busy) return false;
+  // SAFETY GUARD: never let an empty local DB overwrite a populated Sheet.
+  // If this browser has 0 records, first check what's on the Sheet; if the Sheet has data, block the push.
+  if(localRecordCount()===0){
+    try{
+      const chk=await jsonpRequest(cfg.url,{action:"load", key:cfg.key},15000);
+      const remoteHas = chk && chk.ok && chk.data && (
+        (Array.isArray(chk.data.procurement)&&chk.data.procurement.length) ||
+        (Array.isArray(chk.data.po)&&chk.data.po.length) ||
+        (Array.isArray(chk.data.suppliers)&&chk.data.suppliers.length) ||
+        (Array.isArray(chk.data.stock)&&chk.data.stock.length) ||
+        (Array.isArray(chk.data.construction)&&chk.data.construction.length)
+      );
+      if(remoteHas){
+        setSyncBadge(_syncState.last?"live":"off");
+        if(!silent) toast("Push blocked — Sheet has data","This browser is empty (0 records) but the Sheet is not. Click ⬇ Pull latest now to load it. (Pushing would erase everyone's data.)","err",10000);
+        return false;
+      }
+    }catch(_){ /* if the check itself fails, fall through — the deploy/URL is likely wrong and the push will surface that */ }
+  }
+  _syncState.busy=true; setSyncBadge("syncing","Saving to Sheet…");
   try{
     const dataStr=JSON.stringify(dbForSync());
     await iframePost(cfg.url, {action:"save", key:cfg.key, ts:String(Date.now()), data:dataStr});
@@ -835,6 +866,35 @@ async function syncPull(silent){
   }catch(e){ _syncState.busy=false; if(silent){ /* transient auto-pull failure: restore prior state, retry next tick */ setSyncBadge(_syncState.last?"live":"off"); } else { setSyncBadge("error"); toast("Load failed","Could not reach Google, or the deployed script is the OLD code. Re-paste the new code, Deploy → New version, and set access to ‘Anyone’.","err",9000); } console.warn("syncPull error",e); return false; }
 }
 async function syncNow(){ const ok=await syncPush(false); return ok; }
+// Diagnostic: ping the deployed Apps Script and tell the user exactly which state they're in.
+async function testSync(){
+  // Read the live values from the Settings fields (so the user can test before saving)
+  const url=(document.getElementById("set_gsUrl")?.value||DB.settings.gsUrl||"").trim();
+  const key=(document.getElementById("set_gsKey")?.value||DB.settings.gsKey||"").trim();
+  if(!url){ toast("No URL","Paste the Apps Script Web App URL (ends in /exec) first","err"); return; }
+  if(!/\/exec$/.test(url)){ toast("Check the URL","It should end in /exec (not /dev). Copy it from Deploy → Manage deployments.","warn",8000); }
+  toast("Testing connection…","Contacting the Apps Script","ok");
+  try{
+    const r=await jsonpRequest(url,{action:"load", key:key},15000);
+    if(r && r.ok===true){
+      const d=r.data||{};
+      const n=(Array.isArray(d.procurement)?d.procurement.length:0);
+      const sup=(Array.isArray(d.suppliers)?d.suppliers.length:0);
+      const po=(Array.isArray(d.po)?d.po.length:0);
+      toast("✅ Connected","Sheet reachable · "+n+" procurement, "+sup+" suppliers, "+po+" POs on the Sheet.","ok",9000);
+      return;
+    }
+    if(r && r.ok===false){
+      toast("⚠ Key rejected","Connected to the script, but the Shared Secret Key doesn't match the SECRET in the Apps Script. Fix one to match the other (case-sensitive).","err",10000);
+      return;
+    }
+    toast("Unexpected reply","The script responded but not in the expected format. Make sure the deployed code is the current version.","err",9000);
+  }catch(e){
+    // JSONP failed to load at all — almost always a deployment/access problem, i.e. Google's "file not found"
+    toast("❌ Cannot reach the script","Google returned an error (often \"file not found\"). Causes: URL points to an old/deleted deployment, or access isn't set to \"Anyone\". Redeploy: Manage deployments → Edit → New version → Anyone.","err",12000);
+    console.warn("testSync failed:",e);
+  }
+}
 function startAutoSync(){
   if(_syncState.timer){ clearInterval(_syncState.timer); _syncState.timer=null; }
   const cfg=syncCfg(); if(!cfg.url){ setSyncBadge("off"); return; }
@@ -925,20 +985,12 @@ function buildNav(){
     if(m.id==="purchaseorder") badge=`<span class="badge">${DB.po.length}</span>`;
     if(m.id==="stock") badge=`<span class="badge">${DB.stock.length}</span>`;
     if(m.id==="procurement"){
-      // Expandable parent: chevron + label + count + add button
-      b.onclick=(e)=>{ navigate("procurement"); toggleSidebar(false); };
-      b.innerHTML=`<svg class="nav-caret ${_procListsExpanded?'':'collapsed'}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" onclick="event.stopPropagation();_procListsExpanded=!_procListsExpanded;buildNav()"><polyline points="6 9 12 15 18 9"/></svg>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${m.icon}</svg><span>${m.label}</span>
-        <span class="nav-add" title="New list" onclick="event.stopPropagation();openProcListForm()">+</span>
+      // Single clean nav item — categories are now selected via the filter dropdown on the page,
+      // not as a long sidebar sub-list. Clicking always shows All Procurement.
+      b.onclick=(e)=>{ _procListId="all"; navigate("procurement"); toggleSidebar(false); };
+      b.innerHTML=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${m.icon}</svg><span>${m.label}</span>
         <span class="badge">${DB.procurement.length}</span>`;
       nav.appendChild(b);
-      if(_procListsExpanded){
-        const wrap=document.createElement("div"); wrap.className="nav-sublists";
-        // All Procurement
-        wrap.appendChild(procListNavItem("all","All Procurement"));
-        activeProcLists().forEach(l=>wrap.appendChild(procListNavItem(l.id,l.name)));
-        nav.appendChild(wrap);
-      }
       return;
     }
     if(m.id==="maintenance"){
@@ -1118,6 +1170,9 @@ function renderDashboard(){
     <div class="charts-grid">
       <div class="card"><div class="card-head"><h3>Campus / Project Summary</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="chCampus"></canvas></div></div></div>
       <div class="card"><div class="card-head"><h3>Maintenance Service Status</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="chMaint"></canvas></div></div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="card" style="grid-column:1/-1"><div class="card-head"><h3>Procurement Spend by Category</h3><span class="muted" style="font-size:11.5px;font-weight:600">Click a bar to open that category</span></div><div class="card-body"><div class="chart-wrap" style="height:${Math.max(240, (DB.procurement.reduce((set,r)=>{const k=r.listId||'_un';if(!set.includes(k)&&(Number(r.budget)||0)>0)set.push(k);return set;},[]).length)*34+70)}px"><canvas id="chProcCat"></canvas></div></div></div>
     </div>`;
   drawCharts(s);
 }
@@ -1153,6 +1208,26 @@ function drawCharts(s){
   window._charts.maint=new Chart(document.getElementById("chMaint"),{type:"polarArea",
     data:{labels:mL.length?mL:["No data"],datasets:[{data:mV.length?mV:[1],backgroundColor:C.palette.map(c=>c+"cc"),borderWidth:0}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"right",labels:{usePointStyle:true,padding:12,font:{size:11}}}},scales:{r:{grid:{color:C.grid},ticks:{display:false}}}}});
+  // procurement spend by category (horizontal bar, sorted desc, click to open category)
+  const cat=document.getElementById("chProcCat");
+  if(cat){
+    const lists=activeProcLists();
+    const spend=lists.map(l=>({id:l.id,name:l.name,total:DB.procurement.filter(r=>r.listId===l.id).reduce((x,r)=>x+(Number(r.budget)||0),0),count:DB.procurement.filter(r=>r.listId===l.id).length}));
+    // include an "Unassigned" bucket if any records have no valid category
+    const unassignedRecs=DB.procurement.filter(r=>!r.listId||!lists.some(l=>l.id===r.listId));
+    if(unassignedRecs.length) spend.push({id:"",name:"Unassigned",total:unassignedRecs.reduce((x,r)=>x+(Number(r.budget)||0),0),count:unassignedRecs.length});
+    spend.sort((a,b)=>b.total-a.total);
+    // Only chart categories that actually have spend — keeps the dashboard clean (empty ones still appear in the dropdown/Manage Categories)
+    const spendNZ=spend.filter(x=>x.total>0);
+    const pcL=spendNZ.map(x=>x.name), pcV=spendNZ.map(x=>x.total), pcIds=spendNZ.map(x=>x.id), pcCnt=spendNZ.map(x=>x.count);
+    window._charts.procCat=new Chart(cat,{type:"bar",
+      data:{labels:pcL.length?pcL:["No data"],datasets:[{data:pcV.length?pcV:[0],backgroundColor:C.palette.concat(C.palette).slice(0,Math.max(1,pcL.length)),borderRadius:7,maxBarThickness:28}]},
+      options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,
+        onClick:(e,els)=>{ if(els&&els.length){ const i=els[0].index; _pendingProcCat=pcIds[i]||""; navigate("procurement"); } },
+        onHover:(e,els)=>{ e.native&&(e.native.target.style.cursor=els&&els.length?"pointer":"default"); },
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${shortMoney(ctx.parsed.x)} · ${pcCnt[ctx.dataIndex]} record(s)`}}},
+        scales:{x:{grid:{color:C.grid},ticks:{callback:v=>shortMoney(v)}},y:{grid:{display:false},ticks:{font:{size:11}}}}}});
+  }
 }
 function redrawCharts(){ if(CURRENT==="dashboard") drawCharts(computeStats()); }
 /* ============================================================
@@ -1165,7 +1240,12 @@ function renderRecords(set){
   const isProc = set==="procurement";
   const campusOpts = isProc?PROC_CAMPUSES:CAMPUSES;
   const statusOpts = isProc?PROC_STATUSES:STATUSES;
-  if(isProc){ renderProcurement(); return; }
+  if(isProc){
+    // Honor a category pre-selected from elsewhere (e.g. clicking a Dashboard bar); otherwise reset filters on fresh entry.
+    if(typeof _pendingProcCat!=="undefined" && _pendingProcCat!==null){ _procFilter2={list:_pendingProcCat,supplier:"",responsible:""}; _pendingProcCat=null; }
+    else { _procFilter2={list:"",supplier:"",responsible:""}; }
+    renderProcurement(); return;
+  }
   document.getElementById("content").innerHTML=`
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openRecordForm('${set}')">
@@ -1184,19 +1264,27 @@ function renderRecords(set){
     <div class="table-card"><div class="table-scroll"><div id="tableHost"></div></div></div>`;
   paintTable(set);
 }
-let _procView="list", _procFilter2={list:"",supplier:"",responsible:""};
+let _procView="list", _procFilter2={list:"",supplier:"",responsible:""}, _pendingProcCat=null;
 function renderProcurement(){
   seedProcLists();
-  _filter={q:"",campus:"",status:""};
-  _procFilter2={list:"",supplier:"",responsible:""};
+  // NOTE: filters are reset on navigation entry (see renderRecords), NOT here,
+  // so that changing the category dropdown (which re-calls renderProcurement) preserves the selection.
+  if(!_procFilter2) _procFilter2={list:"",supplier:"",responsible:""};
   const isAll=_procListId==="all";
   // page subtitle reflects the current list
   const crumb=document.getElementById("pageCrumb"); if(crumb) crumb.textContent= isAll?"All procurement records across every list":("List: "+procListName(_procListId));
   const suppliers=[...new Set(DB.procurement.map(r=>r.supplier).filter(Boolean))];
   const responsibles=[...new Set(DB.procurement.map(r=>r.responsible).filter(Boolean))];
+  // Currently selected category (via dropdown). "" = All categories.
+  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const selCat=_procFilter2.list||"";
+  // Live total for the selected category (or all)
+  const catRecords = selCat ? DB.procurement.filter(r=>r.listId===selCat) : DB.procurement.slice();
+  const catTotal = catRecords.reduce((s,r)=>s+(Number(r.budget)||0),0);
+  const catLabel = selCat ? procListName(selCat) : "All Categories";
   document.getElementById("content").innerHTML=`
     <div class="toolbar" style="flex-wrap:wrap;gap:8px">
-      <div style="font-size:16px;font-weight:800">${esc(procListName(_procListId))} <span class="muted" style="font-size:12.5px;font-weight:600">${procRecordsForList().length} record(s)</span></div>
+      <div style="font-size:16px;font-weight:800">${esc(catLabel)} <span class="muted" style="font-size:12.5px;font-weight:600">${catRecords.length} record(s) · ${usd(catTotal)}</span></div>
       <div class="grow"></div>
       <div style="display:inline-flex;background:var(--surface-2);border-radius:9px;padding:3px;gap:3px">
         <button class="btn btn-sm ${_procView==='list'?'btn-primary':'btn-ghost'}" onclick="_procView='list';paintTable('procurement')" style="${_procView==='list'?'':'background:transparent'}">List</button>
@@ -1204,16 +1292,20 @@ function renderProcurement(){
       </div>
       <button class="btn btn-primary" onclick="openRecordForm('procurement')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Record</button>
+      <button class="btn btn-ghost btn-sm" onclick="openManageCategories()">Manage Categories</button>
       <button class="btn btn-ghost btn-sm" onclick="exportProcurementExcel()">Excel</button>
       <button class="btn btn-ghost btn-sm" onclick="printProcurement()">Print</button>
     </div>
     <div class="toolbar" style="flex-wrap:wrap;gap:8px">
-      <input class="filter-sel" id="fltQ" placeholder="Search..." style="min-width:150px" oninput="_filter.q=this.value;paintTable('procurement')">
-      ${isAll?`<select class="filter-sel" onchange="_procFilter2.list=this.value;paintTable('procurement')"><option value="">All Lists</option>${activeProcLists().map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join("")}</select>`:""}
-      <select class="filter-sel" id="fltCampus" onchange="_filter.campus=this.value;paintTable('procurement')"><option value="">All Campus/Project</option>${PROC_CAMPUSES.map(c=>`<option>${c}</option>`).join("")}</select>
-      <select class="filter-sel" id="fltStatus" onchange="_filter.status=this.value;paintTable('procurement')"><option value="">All Status</option>${PROC_STATUSES.map(s=>`<option>${s}</option>`).join("")}</select>
-      <select class="filter-sel" onchange="_procFilter2.supplier=this.value;paintTable('procurement')"><option value="">All Suppliers</option>${suppliers.map(s=>`<option>${esc(s)}</option>`).join("")}</select>
-      <select class="filter-sel" onchange="_procFilter2.responsible=this.value;paintTable('procurement')"><option value="">All Responsible</option>${responsibles.map(s=>`<option>${esc(s)}</option>`).join("")}</select>
+      <input class="filter-sel" id="fltQ" placeholder="Search..." style="min-width:150px" value="${esc(_filter.q||'')}" oninput="_filter.q=this.value;paintTable('procurement')">
+      <select class="filter-sel" id="fltCat" onchange="_procFilter2.list=this.value;renderProcurement()" title="Filter by category" style="font-weight:600">
+        <option value="">All Categories (${DB.procurement.length})</option>
+        ${activeProcLists().map(l=>`<option value="${l.id}" ${selCat===l.id?'selected':''}>${esc(l.name)} (${procListCount(l.id)})</option>`).join("")}
+      </select>
+      <select class="filter-sel" id="fltCampus" onchange="_filter.campus=this.value;paintTable('procurement')"><option value="">All Campus/Project</option>${PROC_CAMPUSES.map(c=>`<option ${_filter.campus===c?'selected':''}>${c}</option>`).join("")}</select>
+      <select class="filter-sel" id="fltStatus" onchange="_filter.status=this.value;paintTable('procurement')"><option value="">All Status</option>${PROC_STATUSES.map(s=>`<option ${_filter.status===s?'selected':''}>${s}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_procFilter2.supplier=this.value;paintTable('procurement')"><option value="">All Suppliers</option>${suppliers.map(s=>`<option ${_procFilter2.supplier===s?'selected':''}>${esc(s)}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_procFilter2.responsible=this.value;paintTable('procurement')"><option value="">All Responsible</option>${responsibles.map(s=>`<option ${_procFilter2.responsible===s?'selected':''}>${esc(s)}</option>`).join("")}</select>
     </div>
     <div id="tableHost"></div>`;
   paintTable("procurement");
@@ -1225,8 +1317,9 @@ function toggleGroup(key){ _collapsedGroups[key]=!_collapsedGroups[key]; paintTa
 function filteredRecords(set){
   let base=DB[set];
   if(set==="procurement"){
-    base=procRecordsForList();
-    if(_procListId==="all" && _procFilter2.list) base=base.filter(r=>r.listId===_procFilter2.list);
+    base=DB.procurement.slice();
+    // Category is now driven purely by the dropdown filter (sidebar sub-lists removed)
+    if(_procFilter2.list) base=base.filter(r=>r.listId===_procFilter2.list);
     if(_procFilter2.supplier) base=base.filter(r=>r.supplier===_procFilter2.supplier);
     if(_procFilter2.responsible) base=base.filter(r=>r.responsible===_procFilter2.responsible);
   }
@@ -1261,10 +1354,10 @@ function paintProcurement(){
   if(_procView==="board"){ return paintProcurementBoard(host); }
   const rows=filteredRecords("procurement");
   const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const showList=_procListId==="all";
+  const showList=true; // always show the Category column now that sidebar sub-lists are gone
   const headRow=`<tr>
     <th style="min-width:190px">Name</th>
-    ${showList?'<th>List</th>':''}
+    ${showList?'<th>Category</th>':''}
     <th>Campus</th><th>PR Number</th><th>Quote Number</th><th>PO Number</th>
     <th style="text-align:right">Total Budget</th><th>Status</th>
     <th>Due Date</th><th>Confirmed Date</th>
@@ -1359,6 +1452,37 @@ function paintProcurementBoard(host){
 }
 
 /* ---------- Procurement list management ---------- */
+// Manage all procurement categories from one modal (replaces the old sidebar per-list menus)
+function openManageCategories(){
+  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const lists=activeProcLists();
+  const catTotal=id=>DB.procurement.filter(r=>r.listId===id).reduce((s,r)=>s+(Number(r.budget)||0),0);
+  const unassigned=DB.procurement.filter(r=>!r.listId||!DB.procurementLists.some(l=>l.id===r.listId));
+  const rows=lists.map((l,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid var(--border);border-radius:9px;margin-bottom:7px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13.5px">${esc(l.name)}</div>
+        <div class="muted" style="font-size:11.5px">${procListCount(l.id)} record(s) · ${usd(catTotal(l.id))}${l.campus?" · "+esc(l.campus):""}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" title="Move up" onclick="moveProcList('${l.id}',-1);openManageCategories()" ${i===0?'disabled style="opacity:.4"':''}>↑</button>
+      <button class="btn btn-ghost btn-sm" title="Move down" onclick="moveProcList('${l.id}',1);openManageCategories()" ${i===lists.length-1?'disabled style="opacity:.4"':''}>↓</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal();openProcListForm('${l.id}')">Rename</button>
+      <button class="btn btn-ghost btn-sm" onclick="archiveProcList('${l.id}');setTimeout(openManageCategories,50)">Archive</button>
+      ${procListCount(l.id)===0?`<button class="btn btn-danger btn-sm" onclick="closeModal();deleteProcList('${l.id}')">Delete</button>`:''}
+    </div>`).join("");
+  const archived=DB.procurementLists.filter(x=>x.archived);
+  openModal(`<div class="modal-head"><h3>Manage Categories</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+  <div class="modal-body">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <p class="muted" style="font-size:12.5px;margin:0">${lists.length} categor${lists.length===1?'y':'ies'} · ${DB.procurement.length} total record(s)</p>
+      <button class="btn btn-primary btn-sm" onclick="closeModal();openProcListForm()">+ Add Category</button>
+    </div>
+    ${rows||'<p class="muted" style="font-size:13px">No categories yet. Click “Add Category” to create one.</p>'}
+    ${unassigned.length?`<div style="margin-top:10px;padding:9px 10px;border:1px dashed var(--border);border-radius:9px"><div style="font-weight:600;font-size:13px">Unassigned</div><div class="muted" style="font-size:11.5px">${unassigned.length} record(s) · ${usd(unassigned.reduce((s,r)=>s+(Number(r.budget)||0),0))} — edit a record to assign it a category</div></div>`:''}
+    ${archived.length?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px"><div class="muted" style="font-size:12px;margin-bottom:8px">Archived categories</div>${archived.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0"><span style="font-size:13px">${esc(x.name)}</span><button class="btn btn-ghost btn-sm" onclick="restoreProcList('${x.id}');setTimeout(openManageCategories,50)">Restore</button></div>`).join("")}</div>`:''}
+  </div>
+  <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Done</button></div>`,{size:"wide"});
+}
 function openProcListForm(id){
   const l=id?DB.procurementLists.find(x=>x.id===id):null;
   openModal(`<div class="modal-head"><h3>${id?"Rename":"New"} Procurement List</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
@@ -1396,7 +1520,7 @@ function moveProcList(id,dir){
   const lists=activeProcLists(); const i=lists.findIndex(l=>l.id===id);
   const j=i+dir; if(j<0||j>=lists.length){ return; }
   const a=lists[i],b=lists[j]; const ao=a.order, bo=b.order; a.order=bo; b.order=ao;
-  saveDB(); buildNav(); openProcListMenu(id);
+  saveDB(); buildNav();
 }
 function archiveProcList(id){
   const l=DB.procurementLists.find(x=>x.id===id);
@@ -1555,7 +1679,7 @@ function openRecordForm(set,id,defaultStatus){
     <div class="modal-body">
       <div class="form-grid">
         <div class="field full"><label class="req">${isProc?"Name (Task / Item)":"Task / Item Name"}</label><input type="text" id="f_name" value="${esc(r?.name||'')}" placeholder="${isProc?'e.g. Install Fire Alarm':''}"></div>
-        ${isProc?`<div class="field"><label class="req">Procurement List</label><select id="f_listId">${activeProcLists().map(l=>{const def=r?r.listId:(_procListId!=="all"?_procListId:"");return `<option value="${l.id}" ${def===l.id?'selected':''}>${esc(l.name)}</option>`;}).join("")}</select></div>`:""}
+        ${isProc?`<div class="field"><label class="req">Category</label><select id="f_listId"><option value="">— Unassigned —</option>${activeProcLists().map(l=>{const def=r?r.listId:(_procFilter2.list||"");return `<option value="${l.id}" ${def===l.id?'selected':''}>${esc(l.name)}</option>`;}).join("")}</select></div>`:""}
         <div class="field"><label class="req">Campus</label><select id="f_campus">${campusOpts.map(c=>`<option ${r?.campus===c?'selected':''}>${c}</option>`).join("")}</select></div>
         ${isProc?"":`<div class="field"><label>Category</label><select id="f_category">${CATEGORIES.map(c=>`<option ${r?.category===c?'selected':''}>${c}</option>`).join("")}</select></div>`}
         ${field("PR Number","pr",r?.pr,false)}
@@ -2005,6 +2129,7 @@ function renderSettings(){
       <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px"><input type="checkbox" id="set_gsAuto" ${DB.settings.gsAuto!==false?'checked':''}> Automatically pull updates from the Sheet</label>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="saveSyncSettings()">Save Sync Settings</button>
+        <button class="btn btn-ghost" onclick="testSync()">🔌 Test Connection</button>
         <button class="btn btn-ghost" onclick="syncNow()">⬆ Push to Sheet now</button>
         <button class="btn btn-ghost" onclick="syncPull(false)">⬇ Pull latest now</button>
       </div>
