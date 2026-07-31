@@ -72,6 +72,9 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .nav-item svg{flex-shrink:0}
 .nav-item .badge{margin-left:auto;background:var(--surface-2);color:var(--text-dim);font-size:11px;padding:1px 7px;border-radius:10px;font-weight:600}
 .nav-item.active .badge{background:var(--primary);color:#fff}
+.nav-item .badge.badge-alert{background:#dc2626;color:#fff;margin-left:6px;animation:badgePulse 2s ease-in-out infinite}
+.nav-item.active .badge.badge-alert{background:#fff;color:#dc2626}
+@keyframes badgePulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.5)}50%{box-shadow:0 0 0 4px rgba(220,38,38,0)}}
 .sidebar-foot{padding:12px;border-top:1px solid var(--border)}
 .user-chip{display:flex;align-items:center;gap:10px;padding:8px;border-radius:9px}
 .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--accent));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
@@ -84,6 +87,13 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .topbar h2{font-size:18px;font-weight:700;letter-spacing:-.3px}
 .topbar .crumb{color:var(--text-dim);font-size:12.5px;font-weight:500}
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.notif-badge{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:#dc2626;color:#fff;font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--surface)}
+.notif-panel{position:absolute;top:56px;right:16px;width:340px;max-width:calc(100vw - 24px);max-height:70vh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.18);z-index:120}
+.notif-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface)}
+.notif-group{padding:9px 14px 4px;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--text-dim)}
+.notif-item{display:flex;gap:10px;align-items:center;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)}
+.notif-item:hover{background:var(--surface-2)}
+.notif-ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .search-box{display:flex;align-items:center;gap:8px;background:var(--surface-2);border-radius:9px;padding:8px 12px;width:230px}
 .search-box input{background:none;border:none;outline:none;color:var(--text);width:100%}
 .icon-btn{width:38px;height:38px;border-radius:10px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;transition:background .14s}
@@ -482,6 +492,11 @@ body.dark .sp-rec-banner{background:#3a2f12;border-color:#78621f}
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="text" id="globalSearch" placeholder="Search records..." oninput="globalSearchHandler(this.value)">
         </div>
+        <button class="icon-btn" id="notifBtn" onclick="toggleNotifPanel(event)" title="Notifications" style="position:relative">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span id="notifBadge" class="notif-badge" style="display:none">0</span>
+        </button>
+        <div id="notifPanel" class="notif-panel" style="display:none"></div>
         <button class="icon-btn" onclick="toggleTheme()" id="themeBtn" title="Toggle theme"></button>
         <span id="syncBadge" onclick="syncNow()" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid #64748b55;background:#64748b22;color:#64748b;cursor:pointer;white-space:nowrap" title="Click to sync now"><span class="sync-dot" style="width:7px;height:7px;border-radius:50%;background:#64748b;display:inline-block"></span><span class="sync-label">Local only</span></span>
         <span style="font-size:10.5px;font-weight:800;color:#fff;background:var(--accent);padding:3px 9px;border-radius:7px;white-space:nowrap" title="Build version — if you don't see this badge, you are running an old cached file">v2.5 · scroll✓</span>
@@ -995,7 +1010,7 @@ function buildNav(){
     let badge="";
     if(RECORD_SETS[m.id]) badge=`<span class="badge">${DB[m.id].length}</span>`;
     if(m.id==="suppliers") badge=`<span class="badge">${DB.suppliers.length}</span>`;
-    if(m.id==="purchaseorder") badge=`<span class="badge">${DB.po.length}</span>`;
+    if(m.id==="purchaseorder"){ const pend=(typeof poMyPendingApprovals==="function")?poMyPendingApprovals().length:0; badge=`<span class="badge">${DB.po.length}</span>`+(pend>0?`<span class="badge badge-alert" title="${pend} purchase order${pend!==1?'s':''} awaiting your approval">${pend}</span>`:""); }
     if(m.id==="stock") badge=`<span class="badge">${DB.stock.length}</span>`;
     if(m.id==="actasks") badge=`<span class="badge">${DB.acTasks.length}</span>`;
     if(m.id==="procurement"){
@@ -1071,6 +1086,7 @@ function buildNav(){
     b.innerHTML=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${m.icon}</svg><span>${m.label}</span>${badge}`;
     nav.appendChild(b);
   });
+  if(typeof renderNotifBell==="function") renderNotifBell();
 }
 function procListNavItem(id,name){
   const a=document.createElement("button");
@@ -2066,7 +2082,7 @@ function renderUsers(){
   document.getElementById("content").innerHTML=`
     <div class="toolbar"><button class="btn btn-primary" onclick="openUserForm()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create User</button></div>
     <div class="table-card"><div class="table-scroll"><table class="data" style="min-width:640px"><thead><tr><th>User ID</th><th>Name</th><th>Role</th><th>Created</th><th>Action</th></tr></thead><tbody>${
-      DB.users.map(u=>`<tr><td><b>${esc(u.id)}</b></td><td>${esc(u.name)}</td><td><span class="chip-cat">${u.role==="superadmin"?"Super Administrator":"Administrator"}</span></td><td>${fmtDate(u.created)}</td>
+      DB.users.map(u=>`<tr><td><b>${esc(u.id)}</b></td><td>${esc(u.name)}${u.title?`<div class="muted" style="font-size:11px">${esc(u.title)}</div>`:""}${u.tgChatId?` <span title="Telegram alerts on" style="font-size:11px">📲</span>`:""}</td><td><span class="chip-cat">${u.role==="superadmin"?"Super Administrator":"Administrator"}</span></td><td>${fmtDate(u.created)}</td>
       <td><div class="row-actions">
         <button class="act-btn" title="Edit" onclick="openUserForm('${esc(u.id)}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
         ${u.role!=="superadmin"?`<button class="act-btn del" title="Delete" onclick="deleteUser('${esc(u.id)}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:'<span class="muted" style="font-size:11px">Protected</span>'}
@@ -2081,19 +2097,23 @@ function openUserForm(uid_){
     <div class="field"><label class="req">Full Name</label><input id="u_name" value="${esc(u?.name||'')}"></div>
     <div class="field"><label class="${u?'':'req'}">Password ${u?'(leave blank to keep)':''}</label><input type="text" id="u_pass" value=""></div>
     <div class="field"><label>Role</label><select id="u_role" ${isSelf?'disabled':''}><option value="admin" ${u?.role==="admin"?'selected':''}>Administrator</option><option value="superadmin" ${u?.role==="superadmin"?'selected':''}>Super Administrator</option></select></div>
-  </div></div>
+    <div class="field"><label>Title / Position <span class="muted" style="font-weight:400;font-size:11px">(optional)</span></label><input id="u_title" value="${esc(u?.title||'')}" placeholder="e.g. V.P. Operations"></div>
+    <div class="field"><label>Telegram Chat ID <span class="muted" style="font-weight:400;font-size:11px">(optional — for approval alerts)</span></label><input id="u_tgchat" value="${esc(u?.tgChatId||'')}" placeholder="e.g. 123456789"></div>
+  </div>
+  <p class="muted" style="font-size:11.5px;margin:12px 2px 0">The Telegram Chat ID lets this person receive Purchase Order approval alerts on their phone. They message your bot once, then use <b>@userinfobot</b> to get their Chat ID. Requires the Bot Token in Settings → Telegram Delivery.</p></div>
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveUser(${uid_?`'${esc(uid_)}'`:'null'})">Save User</button></div>`,{size:"narrow"});
 }
 function saveUser(uid_){
   const id=document.getElementById("u_id").value.trim(), name=document.getElementById("u_name").value.trim(), pass=document.getElementById("u_pass").value, role=document.getElementById("u_role").value;
+  const title=(document.getElementById("u_title").value||"").trim(), tgChatId=(document.getElementById("u_tgchat").value||"").trim();
   if(!id||!name){ toast("ID and name required","","err"); return; }
   if(uid_){
-    const u=DB.users.find(x=>x.id===uid_); u.name=name; if(pass)u.password=pass; if(u.role!=="superadmin")u.role=role;
+    const u=DB.users.find(x=>x.id===uid_); u.name=name; if(pass)u.password=pass; if(u.role!=="superadmin")u.role=role; u.title=title; u.tgChatId=tgChatId;
     toast("User updated","","ok");
   } else {
     if(!pass){ toast("Password required","","err"); return; }
     if(DB.users.some(x=>x.id.toLowerCase()===id.toLowerCase())){ toast("User ID already exists","","err"); return; }
-    DB.users.push({id,name,password:pass,role,created:Date.now()}); toast("User created","","ok");
+    DB.users.push({id,name,password:pass,role,title,tgChatId,created:Date.now()}); toast("User created","","ok");
   }
   saveDB(); closeModal(); renderUsers();
 }
@@ -2141,12 +2161,14 @@ function renderSettings(){
     </div></div>
 
     <div class="card" style="max-width:720px;margin-top:18px"><div class="card-head"><h3>Telegram Delivery</h3></div><div class="card-body">
-      <p class="muted" style="font-size:12.5px;margin:0 0 12px">Send approved Purchase Orders straight to Telegram. Set up a free bot once: open <b>@BotFather</b> in Telegram → /newbot → copy the token here. Then have the approver message the bot once and use <b>@userinfobot</b> to get her Chat ID.</p>
+      <p class="muted" style="font-size:12.5px;margin:0 0 12px">Send Purchase Orders and approval alerts to Telegram. Set up a free bot once: open <b>@BotFather</b> in Telegram → /newbot → copy the token here. Each person messages the bot once and uses <b>@userinfobot</b> to get their Chat ID (set it on their account in <b>User Management</b> so approval alerts reach them personally).</p>
       <div class="form-grid">
         <div class="field full"><label>Bot Token</label><input id="set_tgToken" value="${esc(DB.settings.tgToken||'')}" placeholder="123456:ABC-DEF..."></div>
-        <div class="field"><label>Approver Chat ID</label><input id="set_tgChat" value="${esc(DB.settings.tgChat||'')}" placeholder="e.g. 123456789"></div>
+        <div class="field"><label>Fallback Chat ID</label><input id="set_tgChat" value="${esc(DB.settings.tgChat||'')}" placeholder="e.g. 123456789"></div>
         <div class="field"><label>Default Caption</label><input id="set_tgCaption" value="${esc(DB.settings.tgCaption||'Purchase Order for your approval')}"></div>
+        <div class="field full"><label>App Link <span class="muted" style="font-weight:400;font-size:11px">(optional — added to alerts so approvers can tap through)</span></label><input id="set_appUrl" value="${esc(DB.settings.appUrl||'')}" placeholder="e.g. https://bnporbiz-lab.github.io/wis-procurement/"></div>
       </div>
+      <p class="muted" style="font-size:11.5px;margin:10px 2px 0"><b>Fallback Chat ID</b> is used only when an approver has no personal Chat ID on their account.</p>
       <div style="display:flex;gap:8px;margin-top:14px">
         <button class="btn btn-primary" onclick="saveTelegramSettings()">Save Telegram Settings</button>
         <button class="btn btn-ghost" onclick="testTelegram()">Send Test Message</button>
@@ -2244,6 +2266,7 @@ function saveTelegramSettings(){
   DB.settings.tgToken=document.getElementById("set_tgToken").value.trim();
   DB.settings.tgChat=document.getElementById("set_tgChat").value.trim();
   DB.settings.tgCaption=document.getElementById("set_tgCaption").value.trim()||"Purchase Order for your approval";
+  const appUrlEl=document.getElementById("set_appUrl"); if(appUrlEl) DB.settings.appUrl=appUrlEl.value.trim();
   saveDB(); toast("Telegram settings saved","","ok");
 }
 async function testTelegram(){
@@ -2729,6 +2752,7 @@ function viewPO(id){
   const files=(p.files||[]).map((f,i)=>{ const [lbl,col]=fileIcon(f.name); return `<div class="file-row"><div class="file-ic" style="background:${col}">${lbl}</div><div class="fn" style="flex:1">${esc(f.name)}</div><button class="btn btn-sm btn-ghost" onclick="previewFile('po','${id}',${i})">Preview</button><button class="btn btn-sm btn-ghost" onclick="downloadFile('po','${id}',${i})">Download</button></div>`; }).join("")||'<span class="muted">No attachments</span>';
   openModal(`<div class="modal-head"><h3>${esc(p.poNo)}</h3><span class="status ${poStatusClass(p.status)}">${esc(p.status)}</span><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body">
+    ${poApprovalStripHTML(p)}
     ${row("Supplier",esc(p.supplier)||"—")}${row("Campus / Project",esc(p.campus)||"—")}${row("PR Number",esc(p.pr)||"—")}${row("Quote Number",esc(p.quote)||"—")}${row("Quote Description",esc(p.quoteDesc)||"—")}${row("Order Date",fmtDate(p.orderDate))}${row("Expected Delivery",fmtDate(p.delivery))}${row("Remarks",esc(p.remarks)||"—")}
     <div style="margin-top:16px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Line Items</div>
     <table class="data" style="min-width:auto"><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Total</th></tr></thead><tbody>${items}</tbody></table>
@@ -2737,7 +2761,7 @@ function viewPO(id){
     ${poWorkflowStripHTML(p)}
     ${poSignatureBlockHTML(p,id)}
   </div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Close</button><button class="btn btn-ghost" onclick="downloadPOExcel('${id}')">Excel</button><button class="btn btn-ghost" onclick="downloadPOPdf('${id}')">PDF</button>${(p.status==="Draft"||!p.workflow||!p.workflow.requested)?`<button class="btn btn-ghost" onclick="issueForApproval('${id}')">Issue for Approval</button>`:""}<button class="btn btn-primary" onclick="approvePO('${id}')">Approve</button></div>`,{size:"wide"});
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Close</button><button class="btn btn-ghost" onclick="downloadPOExcel('${id}')">Excel</button><button class="btn btn-ghost" onclick="downloadPOPdf('${id}')">PDF</button>${poApprovalActionsHTML(p,id)}</div>`,{size:"wide"});
 }
 function downloadPOExcel(id){
   const p=DB.po.find(x=>x.id===id);
@@ -3127,6 +3151,296 @@ function acTaskSeedSample(){
     });
     saveDB(); renderACTasks(); buildNav(); toast("Sample rows added",S.length+" tasks loaded","ok");
   },"Load rows",false);
+}
+
+
+/* ============================================================
+   PO APPROVAL ROUTING + NOTIFICATIONS
+   Preparer submits a PO -> routes to a chosen approver's ACCOUNT
+   -> that account sees a notification bell alert
+   -> only that approver (or a super admin, but never the submitter) can Approve/Reject
+============================================================ */
+
+// --- approval object accessor ---
+function poApproval(p){ return p && p.approval ? p.approval : null; }
+function poApprState(p){ const a=poApproval(p); return a? a.state : "draft"; }
+
+// Am I the assigned approver for this PO?
+function poIsMyApproval(p){ const a=poApproval(p); return !!(a && SESSION && a.approverId===SESSION.id); }
+// Did I submit this PO?
+function poIsMySubmission(p){ const a=poApproval(p); return !!(a && SESSION && a.submittedById===SESSION.id); }
+// Can the current user act on (approve/reject) this PO? (assigned approver or super admin, but NOT the person who submitted it)
+function poCanDecide(p){
+  const a=poApproval(p); if(!a || a.state!=="pending" || !SESSION) return false;
+  if(a.submittedById===SESSION.id) return false;              // separation of duties
+  return a.approverId===SESSION.id || isSuper();
+}
+
+// --- notifications (derived from PO state for the logged-in user) ---
+function poMyPendingApprovals(){
+  if(!SESSION) return [];
+  return DB.po.filter(p=>{ const a=poApproval(p); return a && a.state==="pending" && a.submittedById!==SESSION.id && (a.approverId===SESSION.id || isSuper()); })
+    .sort((x,y)=>(y.approval.submittedAt||0)-(x.approval.submittedAt||0));
+}
+function poMyDecisionUpdates(){
+  if(!SESSION) return [];
+  return DB.po.filter(p=>{ const a=poApproval(p); return a && (a.state==="approved"||a.state==="rejected") && a.submittedById===SESSION.id; })
+    .sort((x,y)=>(y.approval.decidedAt||0)-(x.approval.decidedAt||0));
+}
+// per-user "seen decisions" tracking (local, so decision alerts stop nagging once viewed)
+function poSeenKey(){ return "pmpts_seen_dec_"+((SESSION&&SESSION.id)||"anon"); }
+function poSeenDecisions(){ try{ return JSON.parse(localStorage.getItem(poSeenKey())||"[]"); }catch(e){ return []; } }
+function poMarkDecisionsSeen(){
+  const ids=poMyDecisionUpdates().map(p=>p.id+":"+(p.approval.decidedAt||0));
+  localStorage.setItem(poSeenKey(), JSON.stringify(ids));
+}
+function poUnseenDecisions(){
+  const seen=poSeenDecisions();
+  return poMyDecisionUpdates().filter(p=> !seen.includes(p.id+":"+(p.approval.decidedAt||0)) );
+}
+function poNotifCount(){ return poMyPendingApprovals().length + poUnseenDecisions().length; }
+
+// --- render the topbar bell badge ---
+function renderNotifBell(){
+  const badge=document.getElementById("notifBadge"); if(!badge) return;
+  const n=poNotifCount();
+  if(n>0){ badge.textContent=n>99?"99+":String(n); badge.style.display="flex"; }
+  else { badge.style.display="none"; }
+}
+
+// --- notification dropdown panel ---
+let _notifOutsideHandler=null;
+function toggleNotifPanel(ev){
+  if(ev){ ev.stopPropagation(); }
+  const panel=document.getElementById("notifPanel"); if(!panel) return;
+  if(panel.style.display==="block"){ closeNotifPanel(); return; }
+  panel.innerHTML=notifPanelHTML();
+  panel.style.display="block";
+  poMarkDecisionsSeen();          // opening the panel clears the "new decision" part of the badge
+  renderNotifBell();
+  setTimeout(()=>{ _notifOutsideHandler=(e)=>{ if(!panel.contains(e.target) && e.target.id!=="notifBtn" && !document.getElementById("notifBtn").contains(e.target)) closeNotifPanel(); };
+    document.addEventListener("click",_notifOutsideHandler); },0);
+}
+function closeNotifPanel(){
+  const panel=document.getElementById("notifPanel"); if(panel) panel.style.display="none";
+  if(_notifOutsideHandler){ document.removeEventListener("click",_notifOutsideHandler); _notifOutsideHandler=null; }
+}
+function notifOpenPO(id){ closeNotifPanel(); navigate("purchaseorder"); setTimeout(()=>{ if(typeof viewPO==="function") viewPO(id); },130); }
+function notifPanelHTML(){
+  const pend=poMyPendingApprovals();
+  const upd=poMyDecisionUpdates().slice(0,6);
+  const item=(icon,color,title,sub,onclick)=>`<div class="notif-item" onclick="${onclick}">
+     <div class="notif-ic" style="background:${color}22;color:${color}">${icon}</div>
+     <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px">${title}</div><div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub}</div></div></div>`;
+  let html=`<div class="notif-head"><span style="font-weight:800;font-size:13px">Notifications</span><button class="act-btn" onclick="closeNotifPanel()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>`;
+  if(!pend.length && !upd.length){ html+=`<div class="muted" style="padding:22px 16px;text-align:center;font-size:12.5px">You're all caught up — no notifications.</div>`; return html; }
+  if(pend.length){
+    html+=`<div class="notif-group">Needs your approval (${pend.length})</div>`;
+    html+=pend.map(p=>item('<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+      "#d97706", `${esc(p.poNo)} needs your approval`,
+      `${esc(p.supplier||"—")} · ${money(p.amount)} · from ${esc(p.approval.submittedByName||"—")}`,
+      `notifOpenPO('${p.id}')`)).join("");
+  }
+  if(upd.length){
+    html+=`<div class="notif-group">Updates on your submissions</div>`;
+    html+=upd.map(p=>{ const ap=p.approval.state==="approved";
+      return item(ap?'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>':'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+      ap?"#059669":"#dc2626", `${esc(p.poNo)} was ${ap?"approved":"rejected"}`,
+      `${ap?"Approved":"Rejected"} by ${esc(p.approval.approverName||"—")}${(!ap&&p.approval.note)?" · "+esc(p.approval.note):""}`,
+      `notifOpenPO('${p.id}')`); }).join("");
+  }
+  return html;
+}
+
+// --- approval status strip shown inside the PO detail modal ---
+function poApprovalStripHTML(p){
+  const a=poApproval(p);
+  if(!a || a.state==="draft"){
+    return `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text-dim)">Not yet submitted for approval. Use <b>Submit for Approval</b> below to send it to an approver.</div>`;
+  }
+  const stamp=t=>t?fmtStamp(t):"";
+  if(a.state==="pending"){
+    const mine=poCanDecide(p);
+    const bg=mine?"#d9770618":"#2563eb12", bd=mine?"#d9770655":"#2563eb44", col=mine?"#b45309":"#1d4ed8";
+    return `<div style="background:${bg};border:1px solid ${bd};border-radius:10px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;color:${col}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        ${mine?"This purchase order is awaiting YOUR approval":"Awaiting approval"}
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:4px">Submitted by <b>${esc(a.submittedByName||"—")}</b> ${a.submittedAt?("· "+stamp(a.submittedAt)):""} · Assigned to <b>${esc(a.approverName||"—")}</b></div>
+    </div>`;
+  }
+  if(a.state==="approved"){
+    return `<div style="background:#05966912;border:1px solid #05966955;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;color:#047857"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>Approved</div>
+      <div class="muted" style="font-size:12px;margin-top:4px">Approved by <b>${esc(a.approverName||"—")}</b> ${a.decidedAt?("· "+stamp(a.decidedAt)):""}${a.submittedByName?(" · submitted by "+esc(a.submittedByName)):""}</div>
+    </div>`;
+  }
+  if(a.state==="rejected"){
+    return `<div style="background:#dc262612;border:1px solid #dc262655;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;color:#b91c1c"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Rejected</div>
+      <div class="muted" style="font-size:12px;margin-top:4px">Rejected by <b>${esc(a.approverName||"—")}</b> ${a.decidedAt?("· "+stamp(a.decidedAt)):""}${a.note?(`<br><span style="color:#b91c1c">Reason: ${esc(a.note)}</span>`):""}</div>
+    </div>`;
+  }
+  return "";
+}
+
+// --- footer action buttons (state + role aware) ---
+function poApprovalActionsHTML(p,id){
+  const a=poApproval(p);
+  const st=a?a.state:"draft";
+  let btns="";
+  if(st==="draft"||st==="rejected"){
+    btns+=`<button class="btn btn-primary" onclick="poSubmitForApproval('${id}')">${st==="rejected"?"Revise &amp; Resubmit":"Submit for Approval"}</button>`;
+  } else if(st==="pending"){
+    if(poCanDecide(p)){
+      btns+=`<button class="btn btn-ghost" style="color:#dc2626" onclick="poRejectRouted('${id}')">Reject</button>`;
+      btns+=`<button class="btn btn-primary" onclick="poApproveRouted('${id}')">Approve</button>`;
+    } else if(poIsMySubmission(p)){
+      btns+=`<span class="muted" style="font-size:12px;margin-right:auto">Awaiting approval by ${esc(a.approverName||"approver")}</span><button class="btn btn-ghost" onclick="poRecall('${id}')">Recall</button>`;
+    } else {
+      btns+=`<span class="muted" style="font-size:12px">Awaiting approval by ${esc(a.approverName||"approver")}</span>`;
+    }
+  } else if(st==="approved"){
+    btns+=`<button class="btn btn-primary" onclick="issueAndSendPO('${id}')">Issue &amp; Send</button>`;
+  }
+  return btns;
+}
+
+// --- submit flow ---
+function poSubmitForApproval(id){
+  const p=DB.po.find(x=>x.id===id); if(!p) return;
+  const others=DB.users.filter(u=> !SESSION || u.id!==SESSION.id );
+  if(!others.length){
+    openModal(`<div class="modal-head"><h3>No approver available</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="modal-body"><p style="font-size:13.5px;line-height:1.6">To route this PO for approval you first need an account for your approver (e.g. your VP of Operations).</p>
+    <p class="muted" style="font-size:12.5px">Go to <b>User Management</b> and add an account for them, then come back and submit.</p></div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="closeModal();navigate('users')">Open User Management</button></div>`);
+    return;
+  }
+  const def=DB.settings.defaultApproverId && others.some(u=>u.id===DB.settings.defaultApproverId) ? DB.settings.defaultApproverId : others[0].id;
+  openModal(`<div class="modal-head"><h3>Submit PO for Approval</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+  <div class="modal-body">
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">This sends <b>${esc(p.poNo)}</b> (${money(p.amount)}) to the selected person's account. They'll get an in-app notification${(DB.settings.tgToken||"").trim()?" and a Telegram alert on their phone":""} that a PO needs their approval.</p>
+    <div class="field"><label class="req">Send to (approver)</label><select id="po_appr_select">${others.map(u=>`<option value="${esc(u.id)}" ${u.id===def?'selected':''}>${esc(u.name)}${u.role==="superadmin"?" (Super Admin)":""}</option>`).join("")}</select></div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="po_appr_default" checked style="width:auto"> Remember this person as my default approver</label>
+  </div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="poDoSubmit('${id}')">Submit for Approval</button></div>`);
+}
+function poDoSubmit(id){
+  const p=DB.po.find(x=>x.id===id); if(!p) return;
+  const sel=document.getElementById("po_appr_select"); const approverId=sel?sel.value:null;
+  const approver=DB.users.find(u=>u.id===approverId); if(!approver){ toast("Pick an approver","","err"); return; }
+  const remember=document.getElementById("po_appr_default"); if(remember&&remember.checked) DB.settings.defaultApproverId=approverId;
+  p.approval={
+    state:"pending", approverId:approver.id, approverName:approver.name,
+    submittedById:(SESSION&&SESSION.id)||"", submittedByName:(SESSION&&SESSION.name)||"System",
+    submittedAt:Date.now(), decidedAt:null, note:""
+  };
+  // stamp preparer in the existing workflow + apply preparer signature if configured
+  const w=poWorkflow(p);
+  w.requested={name:DB.settings.prepName||(SESSION&&SESSION.name)||PO_COMPANY.preparedBy, title:DB.settings.prepTitle||PO_COMPANY.preparedTitle, at:Date.now(), by:(SESSION&&SESSION.name)||"System"};
+  w.approved=null; // clear any prior approval stamp (e.g. on resubmit)
+  if(DB.settings.prepSig) applySavedSig_quiet(id,"prepared");
+  p.status="Pending Approval"; p.issuedAt=Date.now();
+  saveDB(); closeModal(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
+  toast("Submitted for approval","Sent to "+approver.name+" — they'll be notified","ok",5000);
+  poNotifyApproverTelegram(p, approver);
+}
+
+// --- approve ---
+function poApproveRouted(id){
+  const p=DB.po.find(x=>x.id===id); if(!p) return;
+  if(!poCanDecide(p)){ toast("Not permitted","Only the assigned approver can approve this PO","err"); return; }
+  const a=p.approval;
+  confirmModal("Approve this Purchase Order?",`${esc(p.poNo)} (${money(p.amount)}) will be marked <b>Approved</b>${DB.settings.apprSig?", and the approver's e-signature applied":""}.`,()=>{
+    a.state="approved"; a.decidedAt=Date.now(); a.decidedById=(SESSION&&SESSION.id)||""; a.approverName=(SESSION&&SESSION.name)||a.approverName;
+    const meU=DB.users.find(u=>SESSION&&u.id===SESSION.id);
+    const w=poWorkflow(p);
+    w.approved={name:(SESSION&&SESSION.name)||DB.settings.apprName||PO_COMPANY.approvedBy, title:(meU&&meU.title)||DB.settings.apprTitle||PO_COMPANY.approvedTitle, at:Date.now(), by:(SESSION&&SESSION.name)||"System"};
+    if(DB.settings.apprSig) applySavedSig_quiet(id,"approved");
+    p.status="Approved"; p.approvedAt=Date.now();
+    saveDB(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
+    toast("Purchase order approved","","ok");
+    poNotifySubmitterTelegram(p);
+  },"Approve",false);
+}
+
+// --- reject ---
+function poRejectRouted(id){
+  const p=DB.po.find(x=>x.id===id); if(!p) return;
+  if(!poCanDecide(p)){ toast("Not permitted","Only the assigned approver can reject this PO","err"); return; }
+  openModal(`<div class="modal-head"><h3>Reject Purchase Order</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+  <div class="modal-body"><p class="muted" style="font-size:12.5px;margin:0 0 12px">${esc(p.poNo)} will be sent back to the preparer, who can revise and resubmit.</p>
+    <div class="field"><label>Reason (optional)</label><textarea id="po_reject_note" rows="3" placeholder="e.g. Budget exceeded — please get a second quotation"></textarea></div></div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" style="background:#dc2626" onclick="poDoReject('${id}')">Reject &amp; Return</button></div>`);
+}
+function poDoReject(id){
+  const p=DB.po.find(x=>x.id===id); if(!p) return;
+  const a=p.approval; if(!a) return;
+  const note=(document.getElementById("po_reject_note")||{}).value||"";
+  a.state="rejected"; a.decidedAt=Date.now(); a.decidedById=(SESSION&&SESSION.id)||""; a.approverName=(SESSION&&SESSION.name)||a.approverName; a.note=note.trim();
+  const w=poWorkflow(p); w.approved=null;
+  p.status="Draft";
+  saveDB(); closeModal(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
+  toast("Purchase order rejected","Returned to "+(a.submittedByName||"preparer"),"ok");
+  poNotifySubmitterTelegram(p);
+}
+
+// --- Telegram notifications for the approval workflow ---
+function escTG(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+async function telegramSendMessage(text, chatId){
+  const token=(DB.settings.tgToken||"").trim();
+  const chat=(chatId||DB.settings.tgChat||"").trim();
+  if(!token||!chat) return {ok:false, reason:"not-configured"};
+  try{
+    const res=await fetch(`https://api.telegram.org/bot${token}/sendMessage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text,parse_mode:"HTML",disable_web_page_preview:true})});
+    const j=await res.json();
+    return {ok:!!j.ok, reason:j.description||""};
+  }catch(e){ return {ok:false, reason:"network"}; }
+}
+// Notify the approver's personal Telegram (falls back to the global chat) that a PO needs approval
+async function poNotifyApproverTelegram(p, approver){
+  if(!(DB.settings.tgToken||"").trim()) return;                 // Telegram not set up — silently skip
+  const chat=(approver && approver.tgChatId && approver.tgChatId.trim()) ? approver.tgChatId.trim() : (DB.settings.tgChat||"").trim();
+  if(!chat) return;
+  const link=(DB.settings.appUrl||"").trim()?`\n\n<a href="${escTG(DB.settings.appUrl.trim())}">Open the Procurement system to approve →</a>`:"";
+  const text=`🔔 <b>Purchase Order — Approval Needed</b>\n`+
+    `PO#: <b>${escTG(p.poNo)}</b>\n`+
+    `Supplier: ${escTG(p.supplier||"—")}\n`+
+    `Amount: <b>${money(p.amount)}</b>\n`+
+    `Campus/Project: ${escTG(p.campus||"—")}\n`+
+    `Submitted by: ${escTG((SESSION&&SESSION.name)||"—")}`+link;
+  const r=await telegramSendMessage(text, chat);
+  if(r.ok) toast("Telegram alert sent",(approver&&approver.name?approver.name:"Approver")+" was notified on Telegram","ok");
+  else if(r.reason && r.reason!=="not-configured") toast("Telegram alert not sent",r.reason==="network"?"Could not reach Telegram":r.reason,"err",6500);
+}
+// Notify the submitter's personal Telegram of a decision (only if they have their own chat id)
+async function poNotifySubmitterTelegram(p){
+  if(!(DB.settings.tgToken||"").trim() || !p.approval) return;
+  const submitter=DB.users.find(u=>u.id===p.approval.submittedById);
+  const chat=(submitter && submitter.tgChatId && submitter.tgChatId.trim()) ? submitter.tgChatId.trim() : "";
+  if(!chat) return;                                             // don't send decisions to the global chat
+  const approved=p.approval.state==="approved";
+  const text=`${approved?"✅":"❌"} <b>Purchase Order ${approved?"Approved":"Rejected"}</b>\n`+
+    `PO#: <b>${escTG(p.poNo)}</b>\n`+
+    `Amount: <b>${money(p.amount)}</b>\n`+
+    `${approved?"Approved":"Rejected"} by: ${escTG(p.approval.approverName||"—")}`+
+    ((!approved && p.approval.note)?`\nReason: ${escTG(p.approval.note)}`:"");
+  await telegramSendMessage(text, chat);
+}
+
+
+function poRecall(id){
+  const p=DB.po.find(x=>x.id===id); if(!p||!p.approval) return;
+  if(!poIsMySubmission(p)){ toast("Not permitted","Only the person who submitted it can recall it","err"); return; }
+  confirmModal("Recall this PO?","It will return to Draft and the approval request will be withdrawn.",()=>{
+    p.approval.state="draft"; p.approval.decidedAt=Date.now();
+    const w=poWorkflow(p); w.requested=null; w.approved=null;
+    p.status="Draft";
+    saveDB(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
+    toast("Purchase order recalled","Back to draft","ok");
+  },"Recall",false);
 }
 
 
