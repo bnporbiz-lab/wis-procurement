@@ -671,6 +671,7 @@ const MODULES = [
   {id:"projects",   label:"Construction Project", grp:"Tracking",  icon:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'},
   */
   {id:"maintenance",label:"Maintenance",       grp:"Tracking",  icon:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'},
+  {id:"actasks",    label:"AC Task Tracker",   grp:"Tracking",  icon:'<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'},
   {id:"suppliers",  label:"Suppliers",         grp:"Tracking",  icon:'<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/>'},
   {id:"budget",     label:"Budget",            grp:"Tracking",  icon:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'},
   {id:"purchaseorder",label:"Purchase Order",  grp:"Tracking",  icon:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'},
@@ -691,7 +692,7 @@ let DB = null;
 function defaultDB(){
   return {
     users:[{id:"super admin", password:"Admin@123", name:"Super Admin", role:"superadmin", created:Date.now()}],
-    procurement:[], projects:[], maintenance:[], suppliers:[], budget:[], po:[], stock:[], uniform:[], gepUniform:[], construction:[], procurementLists:[], maintQuarters:[], maintPrices:{}, maintCampuses:[], acUnits:[], acRecords:[], acCorrective:[], poItemCatalog:{}, acSpareRequests:[], acSpareReceipts:[], acReplacementRecords:[], acSpareAuditLogs:[],
+    procurement:[], projects:[], maintenance:[], suppliers:[], budget:[], po:[], stock:[], uniform:[], gepUniform:[], construction:[], procurementLists:[], maintQuarters:[], maintPrices:{}, maintCampuses:[], acUnits:[], acRecords:[], acCorrective:[], poItemCatalog:{}, acSpareRequests:[], acSpareReceipts:[], acReplacementRecords:[], acSpareAuditLogs:[], acTasks:[],
     settings:{currency:"USD", orgName:"WESTEC Procurement Dept."}
   };
 }
@@ -706,7 +707,7 @@ function loadDB(){
   const d=defaultDB();
   for(const k in d){ if(DB[k]===undefined || DB[k]===null) DB[k]=d[k]; }
   if(!Array.isArray(DB.users) || !DB.users.length) DB.users=d.users;
-  ["procurement","projects","maintenance","suppliers","budget","po","stock","uniform","gepUniform","construction","procurementLists","maintQuarters","maintCampuses","acUnits","acRecords","acCorrective","acSpareRequests","acSpareReceipts","acReplacementRecords","acSpareAuditLogs"].forEach(k=>{ if(!Array.isArray(DB[k])) DB[k]=[]; });
+  ["procurement","projects","maintenance","suppliers","budget","po","stock","uniform","gepUniform","construction","procurementLists","maintQuarters","maintCampuses","acUnits","acRecords","acCorrective","acSpareRequests","acSpareReceipts","acReplacementRecords","acSpareAuditLogs","acTasks"].forEach(k=>{ if(!Array.isArray(DB[k])) DB[k]=[]; });
   if(!DB.maintPrices || typeof DB.maintPrices!=="object" || Array.isArray(DB.maintPrices)) DB.maintPrices={};
   if(!DB.poItemCatalog || typeof DB.poItemCatalog!=="object" || Array.isArray(DB.poItemCatalog)) DB.poItemCatalog={};
   // Repair any duplicate record IDs across record collections (legacy data could cause edits to update the wrong copy)
@@ -996,6 +997,7 @@ function buildNav(){
     if(m.id==="suppliers") badge=`<span class="badge">${DB.suppliers.length}</span>`;
     if(m.id==="purchaseorder") badge=`<span class="badge">${DB.po.length}</span>`;
     if(m.id==="stock") badge=`<span class="badge">${DB.stock.length}</span>`;
+    if(m.id==="actasks") badge=`<span class="badge">${DB.acTasks.length}</span>`;
     if(m.id==="procurement"){
       // Single clean nav item — categories are now selected via the filter dropdown on the page,
       // not as a long sidebar sub-list. Clicking always shows All Procurement.
@@ -1084,10 +1086,10 @@ function navigate(mod){
   document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.mod===mod));
   const m=MODULES.find(x=>x.id===mod);
   document.getElementById("pageTitle").textContent=m.label;
-  const crumbs={dashboard:"Overview of all operations",procurement:"Local & overseas purchasing records",projects:"Multi-site construction project management and control",maintenance:"HVAC, ICT & IT service tracking",suppliers:"Vendor directory & credentials",budget:"Budget allocation & spend tracking",purchaseorder:"Purchase orders & delivery tracking",stock:"Inventory & stock level management",reports:"Generate & export PDF reports",backup:"Import, export & Telegram sync",users:"Manage admin accounts",settings:"System preferences & data reset"};
+  const crumbs={dashboard:"Overview of all operations",procurement:"Local & overseas purchasing records",projects:"Multi-site construction project management and control",maintenance:"HVAC, ICT & IT service tracking",actasks:"Simple AC job list — budget, invoice & status tracking",suppliers:"Vendor directory & credentials",budget:"Budget allocation & spend tracking",purchaseorder:"Purchase orders & delivery tracking",stock:"Inventory & stock level management",reports:"Generate & export PDF reports",backup:"Import, export & Telegram sync",users:"Manage admin accounts",settings:"System preferences & data reset"};
   document.getElementById("pageCrumb").textContent=crumbs[mod]||"";
   const c=document.getElementById("content"); c.scrollTop=0;
-  const fn={dashboard:renderDashboard,procurement:()=>renderRecords("procurement"),projects:renderConstruction,maintenance:renderMaintenance,suppliers:renderSuppliers,budget:renderBudget,purchaseorder:renderPO,stock:renderStock,reports:renderReports,backup:renderBackup,users:renderUsers,settings:renderSettings}[mod];
+  const fn={dashboard:renderDashboard,procurement:()=>renderRecords("procurement"),projects:renderConstruction,maintenance:renderMaintenance,actasks:renderACTasks,suppliers:renderSuppliers,budget:renderBudget,purchaseorder:renderPO,stock:renderStock,reports:renderReports,backup:renderBackup,users:renderUsers,settings:renderSettings}[mod];
   fn();
   buildNav();
 }
@@ -2871,6 +2873,223 @@ function downloadPOPdf(id,mode){
 ============================================================ */
 let _stockFilter={q:"",cat:""};
 let _stockTab="inventory";
+/* ============================================================
+   AC TASK TRACKER — simple flat list (mirrors the "AVD General Task" sheet)
+   Columns: Task | Campus | PR Number | Q-Number | Total Budget |
+            Status | Invoice Received Date | Invoice # | Notes
+   Deliberately lightweight: no multi-step workflow.
+============================================================ */
+const ACTASK_STATUSES = ["", "To Do", "In Progress", "Ordered", "Invoice Received", "Completed", "Cancelled"];
+const ACTASK_CAMPUSES = ["CKD","CAR","BKK","STD","BTB II","VSB","CEN","SHV","SSK","TSK","BCH","DNG","SOW","WU-KPC"];
+let _acTaskFilter = {q:"",campus:"",status:""};
+
+function acTaskStatusColor(s){
+  return { "To Do":"#697586","In Progress":"#2563eb","Ordered":"#d97706",
+    "Invoice Received":"#7c3aed","Completed":"#059669","Cancelled":"#dc2626" }[s] || "#94a3b8";
+}
+function acTaskCampusOptions(){
+  const used=DB.acTasks.map(t=>t.campus).filter(Boolean);
+  return [...new Set([...ACTASK_CAMPUSES,...used])];
+}
+function acTaskMoney(v){ v=Number(v)||0; return "$"+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function acTaskFiltered(){
+  const f=_acTaskFilter;
+  return DB.acTasks.filter(t=>{
+    if(f.campus && t.campus!==f.campus) return false;
+    if(f.status && (t.status||"")!==f.status) return false;
+    if(f.q){ const q=f.q.toLowerCase(); if(![t.task,t.campus,t.pr,t.quote,t.invoiceNo,t.notes].join(" ").toLowerCase().includes(q)) return false; }
+    return true;
+  });
+}
+
+function renderACTasks(){
+  const c=document.getElementById("content");
+  const total=DB.acTasks.length;
+  const budget=DB.acTasks.reduce((a,t)=>a+(Number(t.budget)||0),0);
+  const done=DB.acTasks.filter(t=>t.status==="Completed").length;
+  const outstanding=DB.acTasks.filter(t=>!["Completed","Cancelled"].includes(t.status||"")).length;
+  c.innerHTML=`
+    <div class="kpi-grid">
+      <div class="kpi"><div class="ic ic-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div><div class="val">${total}</div><div class="lbl">Total Tasks</div></div>
+      <div class="kpi"><div class="ic ic-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><div class="val" style="font-size:19px">${acTaskMoney(budget).replace(/\.00$/,"")}</div><div class="lbl">Total Budget</div></div>
+      <div class="kpi"><div class="ic ic-purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="val">${done}</div><div class="lbl">Completed</div></div>
+      <div class="kpi"><div class="ic ic-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="val">${outstanding}</div><div class="lbl">Outstanding</div></div>
+    </div>
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="openACTaskForm()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Task</button>
+      <div class="grow"></div>
+      <input class="filter-sel" id="atQ" placeholder="Search tasks..." style="min-width:170px" value="${esc(_acTaskFilter.q)}" oninput="_acTaskFilter.q=this.value;paintACTasks()">
+      <select class="filter-sel" onchange="_acTaskFilter.campus=this.value;paintACTasks()"><option value="">All Campus</option>${acTaskCampusOptions().map(c=>`<option ${_acTaskFilter.campus===c?'selected':''}>${esc(c)}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_acTaskFilter.status=this.value;paintACTasks()"><option value="">All Status</option>${ACTASK_STATUSES.filter(Boolean).map(s=>`<option ${_acTaskFilter.status===s?'selected':''}>${s}</option>`).join("")}</select>
+      <button class="btn btn-ghost btn-sm" onclick="acTaskExcel()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Excel</button>
+      <button class="btn btn-ghost btn-sm" onclick="acTaskPrint()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print</button>
+    </div>
+    <div class="table-card"><div class="table-scroll"><div id="atHost"></div></div></div>`;
+  paintACTasks();
+}
+
+function paintACTasks(){
+  const host=document.getElementById("atHost"); if(!host) return;
+  const rows=acTaskFiltered();
+  const budget=rows.reduce((a,t)=>a+(Number(t.budget)||0),0);
+  if(!rows.length){
+    host.innerHTML=`<div class="empty" style="padding:40px"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <h4>${DB.acTasks.length?"No matching tasks":"No tasks yet"}</h4>
+      <p>${DB.acTasks.length?"Try clearing the filters.":"Click “Add Task”, or load the rows from your spreadsheet to get started."}</p>
+      ${DB.acTasks.length?"":`<button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="acTaskSeedSample()">Load rows from my screenshot</button>`}</div>`;
+    return;
+  }
+  host.innerHTML=`<table class="data" style="width:100%;min-width:1050px">
+    <thead><tr>
+      <th style="min-width:190px">Task</th><th>Campus</th><th>PR Number</th><th>Q-Number</th><th class="num">Total Budget</th>
+      <th style="min-width:150px">Status</th><th>Invoice Date</th><th>Invoice #</th><th style="min-width:200px">Notes</th><th></th>
+    </tr></thead><tbody>
+    ${rows.map(t=>`<tr>
+      <td style="font-weight:600">${esc(t.task||"")}${(t.files&&t.files.length)?` <span class="att-pill" title="${t.files.length} attachment(s)" onclick="acTaskOpenFile('${t.id}',0)" style="cursor:pointer">📎${t.files.length}</span>`:""}</td>
+      <td>${t.campus?`<span class="campus-tag ${campusTagClass(t.campus)}">${esc(t.campus)}</span>`:'<span class="muted">—</span>'}</td>
+      <td>${esc(t.pr||"")||'<span class="muted">—</span>'}</td>
+      <td>${esc(t.quote||"")||'<span class="muted">—</span>'}</td>
+      <td class="num">${(Number(t.budget)||0)?acTaskMoney(t.budget):'<span class="muted">—</span>'}</td>
+      <td><select class="filter-sel" style="padding:4px 8px;font-size:12px;min-width:140px;border-left:3px solid ${acTaskStatusColor(t.status)}" onchange="acTaskSetStatus('${t.id}',this.value)">${ACTASK_STATUSES.map(s=>`<option value="${s}" ${(t.status||"")===s?'selected':''}>${s||"—"}</option>`).join("")}</select></td>
+      <td>${t.invoiceDate?fmtDateUS(t.invoiceDate):'<span class="muted">—</span>'}</td>
+      <td>${esc(t.invoiceNo||"")||'<span class="muted">—</span>'}</td>
+      <td style="font-size:12.5px;color:var(--text-dim)">${esc(t.notes||"")||'<span class="muted">—</span>'}</td>
+      <td><div class="row-actions">
+        <button class="act-btn" title="Edit" onclick="openACTaskForm('${t.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+        <button class="act-btn del" title="Delete" onclick="deleteACTask('${t.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+      </div></td>
+    </tr>`).join("")}
+    </tbody>
+    <tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4" style="text-align:right">Total (${rows.length} task${rows.length!==1?'s':''})</td><td class="num">${acTaskMoney(budget)}</td><td colspan="5"></td></tr></tfoot>
+    </table>`;
+}
+
+// inline status change (matches the sheet's per-row dropdown)
+function acTaskSetStatus(id,val){
+  const t=DB.acTasks.find(x=>x.id===id); if(!t) return;
+  t.status=val; t.updated=Date.now();
+  saveDB();
+  // repaint softly so the color stripe + KPIs update
+  renderACTasks();
+}
+
+function openACTaskForm(id){
+  const t=id?DB.acTasks.find(x=>x.id===id):null;
+  _stagedFiles=t&&t.files?JSON.parse(JSON.stringify(t.files)):[];
+  const campusOpts=acTaskCampusOptions();
+  openModal(`<div class="modal-head"><h3>${id?"Edit":"Add"} AC Task</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div class="field full"><label class="req">Task</label><input id="at_task" value="${esc(t?.task||'')}" placeholder="e.g. AC water pump motor"></div>
+    <div class="field"><label>Campus</label><input id="at_campus" list="atCampusList" value="${esc(t?.campus||'')}" placeholder="e.g. CKD"><datalist id="atCampusList">${campusOpts.map(c=>`<option value="${esc(c)}">`).join("")}</datalist></div>
+    <div class="field"><label>PR Number</label><input id="at_pr" value="${esc(t?.pr||'')}" placeholder="e.g. 058459 or WIS-CKD-0000028"></div>
+    <div class="field"><label>Q-Number (Quote)</label><input id="at_quote" value="${esc(t?.quote||'')}" placeholder="e.g. 000187"></div>
+    <div class="field"><label>Total Budget</label><input type="number" min="0" step="0.01" id="at_budget" value="${t?.budget??''}" placeholder="0.00"></div>
+    <div class="field"><label>Status</label><select id="at_status">${ACTASK_STATUSES.map(s=>`<option value="${s}" ${(t?.status||"")===s?'selected':''}>${s||"— none —"}</option>`).join("")}</select></div>
+    <div class="field"><label>Invoice Received Date</label><input type="date" id="at_invoiceDate" value="${t?.invoiceDate||''}"></div>
+    <div class="field"><label>Invoice #</label><input id="at_invoiceNo" value="${esc(t?.invoiceNo||'')}" placeholder="e.g. 000228"></div>
+    <div class="field full"><label>Notes</label><textarea id="at_notes" rows="2" placeholder="e.g. Replace aircon fan motor at Sleeping room">${esc(t?.notes||'')}</textarea></div>
+    <div class="field full"><label>Attachments (optional — invoice, quote, photo)</label>
+      <label class="file-drop"><input type="file" multiple accept="${FILE_TYPES}" onchange="handleFileInput(this)">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="1.6" style="margin-bottom:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <div style="font-weight:600;font-size:13px">Click to upload</div></label><div class="file-list" id="fileList"></div></div>
+  </div></div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveACTask(${id?`'${id}'`:'null'})">Save Task</button></div>`,{size:"wide"});
+  renderStagedFiles();
+}
+
+async function saveACTask(id){
+  const g=n=>{ const el=document.getElementById("at_"+n); return el?el.value:""; };
+  const task=g("task").trim();
+  if(!task){ toast("Task is required","Please enter what needs to be done","err"); return; }
+  const fileRefs=await persistStagedFiles(_stagedFiles);
+  const prev=id?DB.acTasks.find(x=>x.id===id):null;
+  const obj={
+    id:id||uid(),
+    task, campus:g("campus").trim(), pr:g("pr").trim(), quote:g("quote").trim(),
+    budget:g("budget")===""?"":(Number(g("budget"))||0), status:g("status"),
+    invoiceDate:g("invoiceDate"), invoiceNo:g("invoiceNo").trim(), notes:g("notes").trim(),
+    files:fileRefs, created:prev?prev.created:Date.now(), updated:Date.now()
+  };
+  if(id){ const i=DB.acTasks.findIndex(x=>x.id===id); DB.acTasks[i]=obj; toast("Task updated","","ok"); }
+  else { DB.acTasks.unshift(obj); toast("Task added","","ok"); }
+  saveDB(); closeModal(); renderACTasks(); buildNav();
+}
+
+function deleteACTask(id){
+  const t=DB.acTasks.find(x=>x.id===id); if(!t) return;
+  confirmModal("Delete task?",`"${esc(t.task||"this task")}" will be permanently removed.`,()=>{
+    DB.acTasks=DB.acTasks.filter(x=>x.id!==id); saveDB(); renderACTasks(); buildNav(); toast("Task deleted","","ok");
+  },"Delete");
+}
+
+async function acTaskOpenFile(id,idx){
+  const t=DB.acTasks.find(x=>x.id===id); if(!t||!t.files||!t.files[idx]) return;
+  const f=t.files[idx]; const data=await resolveFileData(f);
+  if(!data){ toast("File unavailable","It may not have been included in this backup","err"); return; }
+  const w=window.open("","_blank");
+  if(w) w.document.write(`<iframe src="${data}" style="border:0;width:100%;height:100vh"></iframe>`);
+}
+
+function acTaskExcel(){
+  if(typeof XLSX==="undefined"){ toast("Excel unavailable","","err"); return; }
+  const rows=acTaskFiltered().map(t=>({
+    Task:t.task,Campus:t.campus,"PR Number":t.pr,"Q-Number":t.quote,"Total Budget":Number(t.budget)||0,
+    Status:t.status,"Invoice Received Date":t.invoiceDate,"Invoice #":t.invoiceNo,Notes:t.notes
+  }));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{Task:""}]),"AC Tasks");
+  XLSX.writeFile(wb,"ac-task-tracker-"+new Date().toISOString().slice(0,10)+".xlsx");
+  toast("Excel exported","","ok");
+}
+
+function acTaskPrint(){
+  const rows=acTaskFiltered();
+  const budget=rows.reduce((a,t)=>a+(Number(t.budget)||0),0);
+  const body=`<table><thead><tr><th>Task</th><th>Campus</th><th>PR Number</th><th>Q-Number</th><th class="n">Total Budget</th><th>Status</th><th>Invoice Date</th><th>Invoice #</th><th>Notes</th></tr></thead>
+    <tbody>${rows.map(t=>`<tr><td>${esc(t.task||"")}</td><td>${esc(t.campus||"")}</td><td>${esc(t.pr||"")}</td><td>${esc(t.quote||"")}</td><td class="n">${acTaskMoney(t.budget)}</td><td>${esc(t.status||"")}</td><td>${t.invoiceDate?fmtDateUS(t.invoiceDate):""}</td><td>${esc(t.invoiceNo||"")}</td><td>${esc(t.notes||"")}</td></tr>`).join("")||'<tr><td colspan="9">No tasks</td></tr>'}
+    <tr style="font-weight:bold;background:#eef"><td colspan="4" style="text-align:right">Total</td><td class="n">${acTaskMoney(budget)}</td><td colspan="4"></td></tr></tbody></table>`;
+  if(typeof acReportWindow==="function") acReportWindow("AC Task Tracker",body);
+  else { const w=window.open("","_blank"); w.document.write(`<html><head><title>AC Task Tracker</title><style>body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #999;padding:5px}th{background:#5b9bd5;color:#fff}.n{text-align:right}</style></head><body><h2>AC Task Tracker</h2>${body}</body></html>`); w.document.close(); w.focus(); setTimeout(()=>w.print(),350); }
+}
+
+// One-click starter: load the rows visible in the user's screenshot
+function acTaskSeedSample(){
+  if(DB.acTasks.length){ toast("Tasks already exist","Clear them first if you want to reload the sample","err"); return; }
+  const S=[
+    ["Airconditioner fan motor","CKD","058459","000187",185,"2025-11-24","000228","Replace aircon fan motor at Sleeping room"],
+    ["AC water pump motor","CKD","057226","000167",60,"2025-11-24","000224","Replace at Library room"],
+    ["Airconditioner fan motor","CAR","058858","000196",185,"2025-11-24","000223","Dinning room building A"],
+    ["AC water pump motor","BKK","058136","000199",60,"2025-11-24","000222","Room 1B"],
+    ["AC water pump motor","BKK","058117","000183",60,"2025-11-24","000225","Home Room"],
+    ["AC water pump motor","STD","057781","000198",60,"2025-11-24","000221","Room 10A building C"],
+    ["AC sensor","STD","058536","000193",85,"2025-11-24","000227","Room 303 building B"],
+    ["AC water pump motor","STD","056043","000200",60,"2025-11-24","000200","Room 320 8J, building D"],
+    ["AC baord, fan motor,","BTB II","058378","000192",405,"2025-11-24","000226",""],
+    ["AC water pump motor","STD","058535","000194",60,"2025-11-24","000229","Room 226 building C."],
+    ["AC water pump motor","CAR","058857","000184",120,"2025-11-24","000220","Room 11 and Room 20"],
+    ["New compressor","VSB","059012","000195",135,"2025-12-01","000230","Glass door refridgerator - Kitchen"],
+    ["New compressor","VSB","058938","000189",135,"","000215",""],
+    ["New compressor","VSB","058938","000197",85,"","000231",""],
+    ["New board","CKD","WIS-CKD-0000028","000206",132,"2026-01-02","000235",""],
+    ["New board","CEN","WIS-CEN-0000165","000204",132,"2026-01-02","000237",""],
+    ["Buy new refridgerator for selling drink","SHV","057458","000201",538,"2026-01-02","000238",""],
+    ["AC water pump motor","SSK","WIS-SSK-0000027","000207",150,"2026-01-02","00042",""],
+    ["AC water pump motor, EEV, Fan","CAR","WIS-CAR-0000011","000203",455,"2026-01-02","00040",""],
+    ["Fixing cooling web","VSB","WIS-VSB-0000039","000205",45,"2026-01-02","00041",""],
+    ["Install two new AC in IT room","SSK","WIS-SSK-0000015","000180",1416.10,"2026-01-02","00039",""],
+    ["New board","BTB II","WIS-BTB-0000034","000207",132,"2026-01-02","000236",""],
+    ["New compressor","BKK","WIS-BKK-0000027","000211",135,"2026-01-28","00046",""]
+  ];
+  confirmModal("Load rows from your screenshot?",`This will add ${S.length} tasks copied from your spreadsheet so you can start right away. You can edit or delete any of them afterwards.`,()=>{
+    const now=Date.now();
+    S.forEach((r,i)=>{
+      DB.acTasks.push({id:uid(),task:r[0],campus:r[1],pr:r[2],quote:r[3],budget:r[4],status:"",invoiceDate:r[5],invoiceNo:r[6],notes:r[7],files:[],created:now+i,updated:now+i});
+    });
+    saveDB(); renderACTasks(); buildNav(); toast("Sample rows added",S.length+" tasks loaded","ok");
+  },"Load rows",false);
+}
+
+
 function renderStock(){
   const c=document.getElementById("content");
   c.innerHTML=`
@@ -7165,6 +7384,7 @@ function exportExcel(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.budget.map(b=>({Campus:b.campus,Year:b.year,Amount:b.amount,Note:b.note}))),"Budget");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.po.map(p=>({PO_Number:p.poNo,Supplier:p.supplier,Campus:p.campus,PR:p.pr,Status:p.status,OrderDate:p.orderDate,Delivery:p.delivery,Amount:p.amount}))),"PurchaseOrders");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.stock.map(s=>({Name:s.name,SKU:s.sku,Category:s.category,Location:s.location,Qty:s.qty,Unit:s.unit,Reorder:s.reorder,UnitCost:s.unitCost}))),"Stock");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((DB.acTasks||[]).map(t=>({Task:t.task,Campus:t.campus,PR_Number:t.pr,Q_Number:t.quote,Total_Budget:Number(t.budget)||0,Status:t.status,Invoice_Received_Date:t.invoiceDate,Invoice_Number:t.invoiceNo,Notes:t.notes})).length?(DB.acTasks||[]).map(t=>({Task:t.task,Campus:t.campus,PR_Number:t.pr,Q_Number:t.quote,Total_Budget:Number(t.budget)||0,Status:t.status,Invoice_Received_Date:t.invoiceDate,Invoice_Number:t.invoiceNo,Notes:t.notes})):[{Task:""}]),"AC_Tasks");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.uniform.map(u=>({Period:u.period,Outlet:u.outlet,BB:Number(u.bb)||0,MoveIn:uniformSum(u,"moveIn"),MoveIn_Entries:uniformArr(u,"moveIn").join(", "),AdjustIn:uniformSum(u,"adjustIn"),AdjustIn_Entries:uniformArr(u,"adjustIn").join(", "),MoveOut:uniformSum(u,"moveOut"),MoveOut_Entries:uniformArr(u,"moveOut").join(", "),SoldOut:uniformSum(u,"soldOut"),SoldOut_Entries:uniformArr(u,"soldOut").join(", "),Free:uniformSum(u,"free"),Free_Entries:uniformArr(u,"free").join(", "),Broken:uniformSum(u,"broken"),Broken_Entries:uniformArr(u,"broken").join(", "),AdjustOut:uniformSum(u,"adjustOut"),AdjustOut_Entries:uniformArr(u,"adjustOut").join(", "),EB:uniformEB(u),Remark:u.remark}))),"UniformStock");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.gepUniform.map(u=>({Period:u.period,Outlet:u.outlet,BB:Number(u.bb)||0,MoveIn:uniformSum(u,"moveIn"),MoveIn_Entries:uniformArr(u,"moveIn").join(", "),AdjustIn:uniformSum(u,"adjustIn"),AdjustIn_Entries:uniformArr(u,"adjustIn").join(", "),MoveOut:uniformSum(u,"moveOut"),MoveOut_Entries:uniformArr(u,"moveOut").join(", "),SoldOut:uniformSum(u,"soldOut"),SoldOut_Entries:uniformArr(u,"soldOut").join(", "),Free:uniformSum(u,"free"),Free_Entries:uniformArr(u,"free").join(", "),Broken:uniformSum(u,"broken"),Broken_Entries:uniformArr(u,"broken").join(", "),AdjustOut:uniformSum(u,"adjustOut"),AdjustOut_Entries:uniformArr(u,"adjustOut").join(", "),EB:uniformEB(u),Remark:u.remark}))),"GEP_Uniform");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.construction.map(p=>({Name:p.name,Code:p.code,Location:p.location,Type:p.type,PM:p.pm,Contractor:p.contractor,Consultant:p.consultant,ContractAmount:p.contractAmount,ApprovedBudget:p.approvedBudget,StartDate:p.startDate,PlannedEnd:p.plannedEnd,ActualEnd:p.actualEnd,Progress:p.progress,PlannedProgress:p.plannedProgress,Status:p.status,Stage:p.stage,Priority:p.priority,Description:p.description}))),"Construction");
