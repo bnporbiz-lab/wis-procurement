@@ -2902,7 +2902,7 @@ function downloadPOPdf(id,mode){
   // draw signature images above the line if present
   try{ if(sigP&&sigP.dataUrl) doc.addImage(sigP.dataUrl,"PNG",L,sy+6,150,34); }catch(e){}
   try{ if(sigA&&sigA.dataUrl) doc.addImage(sigA.dataUrl,"PNG",L+300,sy+6,150,34); }catch(e){}
-  doc.setDrawColor(90); doc.setLineWidth(0.5); doc.line(L,sy+44,L+200,sy+44); doc.line(L+300,sy+44,L+500,sy+44);
+  doc.setDrawColor(90); doc.setLineWidth(0.5); doc.line(L,sy+44,L+150,sy+44); doc.line(L+300,sy+44,L+450,sy+44);
   doc.setFont(undefined,"bold"); doc.text((w.requested&&w.requested.name)||(sigP&&sigP.name)||PO_COMPANY.preparedBy,L,sy+58); doc.text((w.approved&&w.approved.name)||(sigA&&sigA.name)||PO_COMPANY.approvedBy,L+300,sy+58);
   doc.setFont(undefined,"normal"); doc.setFontSize(9); doc.setTextColor(80);
   doc.text((w.requested&&w.requested.title)||(sigP&&sigP.title)||PO_COMPANY.preparedTitle,L,sy+72); doc.text((w.approved&&w.approved.title)||(sigA&&sigA.title)||PO_COMPANY.approvedTitle,L+300,sy+72);
@@ -3322,7 +3322,7 @@ function poApprovalActionsHTML(p,id){
       btns+=`<span class="muted" style="font-size:12px">Awaiting approval by ${esc(a.approverName||"approver")}</span>`;
     }
   } else if(st==="approved"){
-    if(!isViewer()) btns+=`<button class="btn btn-primary" onclick="issueAndSendPO('${id}')">Issue &amp; Send</button>`;
+    // Approved — no further action button needed (the approval strip already shows it's approved)
   }
   return btns;
 }
