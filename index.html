@@ -2882,6 +2882,7 @@ let _stockTab="inventory";
 const ACTASK_STATUSES = ["", "To Do", "In Progress", "Ordered", "Invoice Received", "Completed", "Cancelled"];
 const ACTASK_CAMPUSES = ["CKD","CAR","BKK","STD","BTB II","VSB","CEN","SHV","SSK","TSK","BCH","DNG","SOW","WU-KPC"];
 let _acTaskFilter = {q:"",campus:"",status:""};
+let _acTaskEditId = null;
 
 function acTaskStatusColor(s){
   return { "To Do":"#697586","In Progress":"#2563eb","Ordered":"#d97706",
@@ -2890,6 +2891,40 @@ function acTaskStatusColor(s){
 function acTaskCampusOptions(){
   const used=DB.acTasks.map(t=>t.campus).filter(Boolean);
   return [...new Set([...ACTASK_CAMPUSES,...used])];
+}
+// distinct AC model / unit numbers already entered (for the datalist suggestions)
+function acTaskModelOptions(){
+  return [...new Set(DB.acTasks.map(t=>t.model).filter(Boolean))].sort();
+}
+// Live "service history for this unit" panel shown inside the Add/Edit form
+function acTaskRenderHistory(model){
+  const host=document.getElementById("atHistory"); if(!host) return;
+  const m=String(model||"").trim().toLowerCase();
+  if(!m){ host.innerHTML=`<div class="muted" style="font-size:12px;padding:8px 2px">Enter an AC model / unit number above to see this unit's past service history here.</div>`; return; }
+  const rows=DB.acTasks
+    .filter(t=>t.id!==_acTaskEditId && String(t.model||"").trim().toLowerCase()===m)
+    .sort((a,b)=>{ const da=a.invoiceDate||"", db=b.invoiceDate||""; if(da&&db) return db.localeCompare(da); if(db) return 1; if(da) return -1; return (b.created||0)-(a.created||0); });
+  if(!rows.length){ host.innerHTML=`<div class="muted" style="font-size:12px;padding:8px 2px">No past records found for this unit — this looks like the first service record for it.</div>`; return; }
+  const totalSpent=rows.reduce((a,t)=>a+(Number(t.budget)||0),0);
+  const pill=s=>`<span style="display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:600;background:${acTaskStatusColor(s)}22;color:${acTaskStatusColor(s)}">${esc(s||"—")}</span>`;
+  host.innerHTML=`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+      <span style="font-weight:700;font-size:12.5px;color:var(--primary)">Service history for this unit — ${rows.length} past record${rows.length!==1?'s':''} · ${acTaskMoney(totalSpent)} spent</span>
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">
+    <table class="data" style="width:100%;min-width:660px;font-size:12px">
+      <thead><tr><th>Date</th><th>Task / Part</th><th>Status</th><th class="num">Budget</th><th>PR #</th><th>Invoice #</th><th>Notes</th></tr></thead>
+      <tbody>${rows.map(t=>`<tr>
+        <td style="white-space:nowrap">${t.invoiceDate?fmtDateUS(t.invoiceDate):'<span class="muted">—</span>'}</td>
+        <td style="font-weight:600">${esc(t.task||"")}</td>
+        <td>${pill(t.status)}</td>
+        <td class="num">${(Number(t.budget)||0)?acTaskMoney(t.budget):'<span class="muted">—</span>'}</td>
+        <td>${esc(t.pr||"")||'<span class="muted">—</span>'}</td>
+        <td>${esc(t.invoiceNo||"")||'<span class="muted">—</span>'}</td>
+        <td style="color:var(--text-dim)">${esc(t.notes||"")||'<span class="muted">—</span>'}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
 }
 function acTaskMoney(v){ v=Number(v)||0; return "$"+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function acTaskFiltered(){
@@ -2945,7 +2980,7 @@ function paintACTasks(){
       <th style="min-width:150px">Status</th><th>Invoice Date</th><th>Invoice #</th><th style="min-width:200px">Notes</th><th></th>
     </tr></thead><tbody>
     ${rows.map(t=>`<tr>
-      <td style="font-weight:600">${esc(t.task||"")}${(t.files&&t.files.length)?` <span class="att-pill" title="${t.files.length} attachment(s)" onclick="acTaskOpenFile('${t.id}',0)" style="cursor:pointer">📎${t.files.length}</span>`:""}</td>
+      <td style="font-weight:600">${esc(t.task||"")}${t.model?`<div class="muted" style="font-weight:400;font-size:11px">${esc(t.model)}</div>`:""}${(t.files&&t.files.length)?` <span class="att-pill" title="${t.files.length} attachment(s)" onclick="acTaskOpenFile('${t.id}',0)" style="cursor:pointer">📎${t.files.length}</span>`:""}</td>
       <td>${t.campus?`<span class="campus-tag ${campusTagClass(t.campus)}">${esc(t.campus)}</span>`:'<span class="muted">—</span>'}</td>
       <td>${esc(t.pr||"")||'<span class="muted">—</span>'}</td>
       <td>${esc(t.quote||"")||'<span class="muted">—</span>'}</td>
@@ -2975,11 +3010,14 @@ function acTaskSetStatus(id,val){
 
 function openACTaskForm(id){
   const t=id?DB.acTasks.find(x=>x.id===id):null;
+  _acTaskEditId=id||null;
   _stagedFiles=t&&t.files?JSON.parse(JSON.stringify(t.files)):[];
   const campusOpts=acTaskCampusOptions();
+  const modelOpts=acTaskModelOptions();
   openModal(`<div class="modal-head"><h3>${id?"Edit":"Add"} AC Task</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body"><div class="form-grid">
     <div class="field full"><label class="req">Task</label><input id="at_task" value="${esc(t?.task||'')}" placeholder="e.g. AC water pump motor"></div>
+    <div class="field full"><label>AC Model / Unit No. <span class="muted" style="font-weight:400;font-size:11px">— pick a unit you've used before, or type a new one to start its history</span></label><input id="at_model" list="atModelList" value="${esc(t?.model||'')}" placeholder="e.g. Daikin FTKC25 · Asset AC-014 · Serial 1234" oninput="acTaskRenderHistory(this.value)"><datalist id="atModelList">${modelOpts.map(mo=>`<option value="${esc(mo)}">`).join("")}</datalist></div>
     <div class="field"><label>Campus</label><input id="at_campus" list="atCampusList" value="${esc(t?.campus||'')}" placeholder="e.g. CKD"><datalist id="atCampusList">${campusOpts.map(c=>`<option value="${esc(c)}">`).join("")}</datalist></div>
     <div class="field"><label>PR Number</label><input id="at_pr" value="${esc(t?.pr||'')}" placeholder="e.g. 058459 or WIS-CKD-0000028"></div>
     <div class="field"><label>Q-Number (Quote)</label><input id="at_quote" value="${esc(t?.quote||'')}" placeholder="e.g. 000187"></div>
@@ -2992,9 +3030,11 @@ function openACTaskForm(id){
       <label class="file-drop"><input type="file" multiple accept="${FILE_TYPES}" onchange="handleFileInput(this)">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="1.6" style="margin-bottom:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       <div style="font-weight:600;font-size:13px">Click to upload</div></label><div class="file-list" id="fileList"></div></div>
+    <div class="field full" style="border-top:1px solid var(--border);padding-top:12px;margin-top:2px"><label style="font-size:12.5px;color:var(--text-dim)">Unit Service History</label><div id="atHistory"></div></div>
   </div></div>
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveACTask(${id?`'${id}'`:'null'})">Save Task</button></div>`,{size:"wide"});
   renderStagedFiles();
+  acTaskRenderHistory(t?.model||"");
 }
 
 async function saveACTask(id){
@@ -3005,7 +3045,7 @@ async function saveACTask(id){
   const prev=id?DB.acTasks.find(x=>x.id===id):null;
   const obj={
     id:id||uid(),
-    task, campus:g("campus").trim(), pr:g("pr").trim(), quote:g("quote").trim(),
+    task, campus:g("campus").trim(), model:g("model").trim(), pr:g("pr").trim(), quote:g("quote").trim(),
     budget:g("budget")===""?"":(Number(g("budget"))||0), status:g("status"),
     invoiceDate:g("invoiceDate"), invoiceNo:g("invoiceNo").trim(), notes:g("notes").trim(),
     files:fileRefs, created:prev?prev.created:Date.now(), updated:Date.now()
@@ -3033,7 +3073,7 @@ async function acTaskOpenFile(id,idx){
 function acTaskExcel(){
   if(typeof XLSX==="undefined"){ toast("Excel unavailable","","err"); return; }
   const rows=acTaskFiltered().map(t=>({
-    Task:t.task,Campus:t.campus,"PR Number":t.pr,"Q-Number":t.quote,"Total Budget":Number(t.budget)||0,
+    Task:t.task,"AC Model / Unit No.":t.model,Campus:t.campus,"PR Number":t.pr,"Q-Number":t.quote,"Total Budget":Number(t.budget)||0,
     Status:t.status,"Invoice Received Date":t.invoiceDate,"Invoice #":t.invoiceNo,Notes:t.notes
   }));
   const wb=XLSX.utils.book_new();
@@ -3045,9 +3085,9 @@ function acTaskExcel(){
 function acTaskPrint(){
   const rows=acTaskFiltered();
   const budget=rows.reduce((a,t)=>a+(Number(t.budget)||0),0);
-  const body=`<table><thead><tr><th>Task</th><th>Campus</th><th>PR Number</th><th>Q-Number</th><th class="n">Total Budget</th><th>Status</th><th>Invoice Date</th><th>Invoice #</th><th>Notes</th></tr></thead>
-    <tbody>${rows.map(t=>`<tr><td>${esc(t.task||"")}</td><td>${esc(t.campus||"")}</td><td>${esc(t.pr||"")}</td><td>${esc(t.quote||"")}</td><td class="n">${acTaskMoney(t.budget)}</td><td>${esc(t.status||"")}</td><td>${t.invoiceDate?fmtDateUS(t.invoiceDate):""}</td><td>${esc(t.invoiceNo||"")}</td><td>${esc(t.notes||"")}</td></tr>`).join("")||'<tr><td colspan="9">No tasks</td></tr>'}
-    <tr style="font-weight:bold;background:#eef"><td colspan="4" style="text-align:right">Total</td><td class="n">${acTaskMoney(budget)}</td><td colspan="4"></td></tr></tbody></table>`;
+  const body=`<table><thead><tr><th>Task</th><th>AC Model / Unit</th><th>Campus</th><th>PR Number</th><th>Q-Number</th><th class="n">Total Budget</th><th>Status</th><th>Invoice Date</th><th>Invoice #</th><th>Notes</th></tr></thead>
+    <tbody>${rows.map(t=>`<tr><td>${esc(t.task||"")}</td><td>${esc(t.model||"")}</td><td>${esc(t.campus||"")}</td><td>${esc(t.pr||"")}</td><td>${esc(t.quote||"")}</td><td class="n">${acTaskMoney(t.budget)}</td><td>${esc(t.status||"")}</td><td>${t.invoiceDate?fmtDateUS(t.invoiceDate):""}</td><td>${esc(t.invoiceNo||"")}</td><td>${esc(t.notes||"")}</td></tr>`).join("")||'<tr><td colspan="10">No tasks</td></tr>'}
+    <tr style="font-weight:bold;background:#eef"><td colspan="5" style="text-align:right">Total</td><td class="n">${acTaskMoney(budget)}</td><td colspan="4"></td></tr></tbody></table>`;
   if(typeof acReportWindow==="function") acReportWindow("AC Task Tracker",body);
   else { const w=window.open("","_blank"); w.document.write(`<html><head><title>AC Task Tracker</title><style>body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #999;padding:5px}th{background:#5b9bd5;color:#fff}.n{text-align:right}</style></head><body><h2>AC Task Tracker</h2>${body}</body></html>`); w.document.close(); w.focus(); setTimeout(()=>w.print(),350); }
 }
@@ -7384,7 +7424,7 @@ function exportExcel(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.budget.map(b=>({Campus:b.campus,Year:b.year,Amount:b.amount,Note:b.note}))),"Budget");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.po.map(p=>({PO_Number:p.poNo,Supplier:p.supplier,Campus:p.campus,PR:p.pr,Status:p.status,OrderDate:p.orderDate,Delivery:p.delivery,Amount:p.amount}))),"PurchaseOrders");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.stock.map(s=>({Name:s.name,SKU:s.sku,Category:s.category,Location:s.location,Qty:s.qty,Unit:s.unit,Reorder:s.reorder,UnitCost:s.unitCost}))),"Stock");
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((DB.acTasks||[]).map(t=>({Task:t.task,Campus:t.campus,PR_Number:t.pr,Q_Number:t.quote,Total_Budget:Number(t.budget)||0,Status:t.status,Invoice_Received_Date:t.invoiceDate,Invoice_Number:t.invoiceNo,Notes:t.notes})).length?(DB.acTasks||[]).map(t=>({Task:t.task,Campus:t.campus,PR_Number:t.pr,Q_Number:t.quote,Total_Budget:Number(t.budget)||0,Status:t.status,Invoice_Received_Date:t.invoiceDate,Invoice_Number:t.invoiceNo,Notes:t.notes})):[{Task:""}]),"AC_Tasks");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((DB.acTasks||[]).map(t=>({Task:t.task,AC_Model_Unit:t.model,Campus:t.campus,PR_Number:t.pr,Q_Number:t.quote,Total_Budget:Number(t.budget)||0,Status:t.status,Invoice_Received_Date:t.invoiceDate,Invoice_Number:t.invoiceNo,Notes:t.notes})).length?(DB.acTasks||[]).map(t=>({Task:t.task,AC_Model_Unit:t.model,Campus:t.campus,PR_Number:t.pr,Q_Number:t.quote,Total_Budget:Number(t.budget)||0,Status:t.status,Invoice_Received_Date:t.invoiceDate,Invoice_Number:t.invoiceNo,Notes:t.notes})):[{Task:""}]),"AC_Tasks");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.uniform.map(u=>({Period:u.period,Outlet:u.outlet,BB:Number(u.bb)||0,MoveIn:uniformSum(u,"moveIn"),MoveIn_Entries:uniformArr(u,"moveIn").join(", "),AdjustIn:uniformSum(u,"adjustIn"),AdjustIn_Entries:uniformArr(u,"adjustIn").join(", "),MoveOut:uniformSum(u,"moveOut"),MoveOut_Entries:uniformArr(u,"moveOut").join(", "),SoldOut:uniformSum(u,"soldOut"),SoldOut_Entries:uniformArr(u,"soldOut").join(", "),Free:uniformSum(u,"free"),Free_Entries:uniformArr(u,"free").join(", "),Broken:uniformSum(u,"broken"),Broken_Entries:uniformArr(u,"broken").join(", "),AdjustOut:uniformSum(u,"adjustOut"),AdjustOut_Entries:uniformArr(u,"adjustOut").join(", "),EB:uniformEB(u),Remark:u.remark}))),"UniformStock");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.gepUniform.map(u=>({Period:u.period,Outlet:u.outlet,BB:Number(u.bb)||0,MoveIn:uniformSum(u,"moveIn"),MoveIn_Entries:uniformArr(u,"moveIn").join(", "),AdjustIn:uniformSum(u,"adjustIn"),AdjustIn_Entries:uniformArr(u,"adjustIn").join(", "),MoveOut:uniformSum(u,"moveOut"),MoveOut_Entries:uniformArr(u,"moveOut").join(", "),SoldOut:uniformSum(u,"soldOut"),SoldOut_Entries:uniformArr(u,"soldOut").join(", "),Free:uniformSum(u,"free"),Free_Entries:uniformArr(u,"free").join(", "),Broken:uniformSum(u,"broken"),Broken_Entries:uniformArr(u,"broken").join(", "),AdjustOut:uniformSum(u,"adjustOut"),AdjustOut_Entries:uniformArr(u,"adjustOut").join(", "),EB:uniformEB(u),Remark:u.remark}))),"GEP_Uniform");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.construction.map(p=>({Name:p.name,Code:p.code,Location:p.location,Type:p.type,PM:p.pm,Contractor:p.contractor,Consultant:p.consultant,ContractAmount:p.contractAmount,ApprovedBudget:p.approvedBudget,StartDate:p.startDate,PlannedEnd:p.plannedEnd,ActualEnd:p.actualEnd,Progress:p.progress,PlannedProgress:p.plannedProgress,Status:p.status,Stage:p.stage,Priority:p.priority,Description:p.description}))),"Construction");
