@@ -354,6 +354,16 @@ table.maint-matrix tfoot .freeze-1{left:0;z-index:3}table.maint-matrix tfoot .fr
 .file-ic{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0}
 .file-row .fn{flex:1;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-row .fs{font-size:11px;color:var(--text-dim)}
+/* Spare Parts & Replacement module */
+.sp-sec-title{font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--primary);margin:16px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--border)}
+.sp-total-box{background:var(--surface-2);border-radius:8px;padding:8px 10px;font-weight:700;font-size:13px}
+table.sp-table th{position:sticky;top:0;background:var(--surface);z-index:1}
+.sp-line .form-grid{gap:8px}
+.sp-rec-banner{background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:11px 13px}
+.sp-alert-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;font-size:12.5px;border-bottom:1px solid var(--border)}
+.sp-alert-row:last-child{border-bottom:none}
+.sp-alert-row>span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.dark .sp-rec-banner{background:#3a2f12;border-color:#78621f}
 
 /* ---------- TOAST ---------- */
 #toasts{position:fixed;bottom:24px;right:24px;z-index:500;display:flex;flex-direction:column;gap:10px}
@@ -549,6 +559,8 @@ async function migrateInlineFilesToIDB(){
   const fileArrays=[];
   // record-level file arrays
   ["procurement","suppliers","po","stock"].forEach(set=>{ (DB[set]||[]).forEach(r=>{ if(Array.isArray(r.files)) fileArrays.push(r.files); }); });
+  // spare-parts module: request / receipt / replacement record files
+  ["acSpareRequests","acSpareReceipts","acReplacementRecords"].forEach(set=>{ (DB[set]||[]).forEach(r=>{ if(Array.isArray(r.files)) fileArrays.push(r.files); }); });
   // construction: project-level files + per-tab record files + wbs files
   (DB.construction||[]).forEach(p=>{
     if(Array.isArray(p.files)) fileArrays.push(p.files);
@@ -679,7 +691,7 @@ let DB = null;
 function defaultDB(){
   return {
     users:[{id:"super admin", password:"Admin@123", name:"Super Admin", role:"superadmin", created:Date.now()}],
-    procurement:[], projects:[], maintenance:[], suppliers:[], budget:[], po:[], stock:[], uniform:[], gepUniform:[], construction:[], procurementLists:[], maintQuarters:[], maintPrices:{}, maintCampuses:[], acUnits:[], acRecords:[], acCorrective:[], poItemCatalog:{},
+    procurement:[], projects:[], maintenance:[], suppliers:[], budget:[], po:[], stock:[], uniform:[], gepUniform:[], construction:[], procurementLists:[], maintQuarters:[], maintPrices:{}, maintCampuses:[], acUnits:[], acRecords:[], acCorrective:[], poItemCatalog:{}, acSpareRequests:[], acSpareReceipts:[], acReplacementRecords:[], acSpareAuditLogs:[],
     settings:{currency:"USD", orgName:"WESTEC Procurement Dept."}
   };
 }
@@ -694,11 +706,11 @@ function loadDB(){
   const d=defaultDB();
   for(const k in d){ if(DB[k]===undefined || DB[k]===null) DB[k]=d[k]; }
   if(!Array.isArray(DB.users) || !DB.users.length) DB.users=d.users;
-  ["procurement","projects","maintenance","suppliers","budget","po","stock","uniform","gepUniform","construction","procurementLists","maintQuarters","maintCampuses","acUnits","acRecords","acCorrective"].forEach(k=>{ if(!Array.isArray(DB[k])) DB[k]=[]; });
+  ["procurement","projects","maintenance","suppliers","budget","po","stock","uniform","gepUniform","construction","procurementLists","maintQuarters","maintCampuses","acUnits","acRecords","acCorrective","acSpareRequests","acSpareReceipts","acReplacementRecords","acSpareAuditLogs"].forEach(k=>{ if(!Array.isArray(DB[k])) DB[k]=[]; });
   if(!DB.maintPrices || typeof DB.maintPrices!=="object" || Array.isArray(DB.maintPrices)) DB.maintPrices={};
   if(!DB.poItemCatalog || typeof DB.poItemCatalog!=="object" || Array.isArray(DB.poItemCatalog)) DB.poItemCatalog={};
   // Repair any duplicate record IDs across record collections (legacy data could cause edits to update the wrong copy)
-  ["procurement","maintenance","po","stock","construction","acUnits","acRecords","acCorrective"].forEach(k=>{
+  ["procurement","maintenance","po","stock","construction","acUnits","acRecords","acCorrective","acSpareRequests","acSpareReceipts","acReplacementRecords"].forEach(k=>{
     const seen=new Set();
     (DB[k]||[]).forEach(r=>{ if(!r.id||seen.has(r.id)){ r.id=uid(); } seen.add(r.id); });
   });
@@ -1028,6 +1040,26 @@ function buildNav(){
             a.innerHTML=`<span class="nav-sublist-dot"></span><span class="nav-sublist-name">${label}</span>${count!=null?`<span class="badge">${count}</span>`:""}`;
             wrap.appendChild(a);
           });
+          // ---- Spare Parts & Replacement (nested under AC Maintenance) ----
+          const spActive=CURRENT==="maintenance"&&_maintTab.startsWith("sp:");
+          const spParent=document.createElement("button");
+          spParent.className="nav-sublist"+(spActive?" active":"");
+          spParent.style.paddingLeft="48px";
+          const spOpen=spOpenOverdueCount();
+          spParent.onclick=()=>{ _spExpanded=!_spExpanded; buildNav(); };
+          spParent.innerHTML=`<svg class="nav-caret ${_spExpanded?'':'collapsed'}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg><span class="nav-sublist-name" style="font-weight:600">Spare Parts &amp; Replacement</span>${spOpen?`<span class="badge" style="background:var(--danger);color:#fff">${spOpen}</span>`:""}`;
+          wrap.appendChild(spParent);
+          if(_spExpanded){
+            const spSubs=[["sp:requests","Spare Parts Requests",DB.acSpareRequests.length],["sp:purchasing","Purchasing Tracker"],["sp:delivery","Delivery & Installation"],["sp:history","Replacement History",DB.acReplacementRecords.length],["sp:reports","Spare Parts Reports"]];
+            spSubs.forEach(([k,label,count])=>{
+              const a=document.createElement("button");
+              a.className="nav-sublist"+(CURRENT==="maintenance"&&_maintTab===k?" active":"");
+              a.style.paddingLeft="66px";
+              a.onclick=()=>{ _maintTab=k; navigate("maintenance"); toggleSidebar(false); };
+              a.innerHTML=`<span class="nav-sublist-dot"></span><span class="nav-sublist-name">${label}</span>${count!=null?`<span class="badge">${count}</span>`:""}`;
+              wrap.appendChild(a);
+            });
+          }
         }
         nav.appendChild(wrap);
       }
@@ -2312,6 +2344,7 @@ function filteredPO(){
 }
 function paintPO(){
   const rows=filteredPO(); const host=document.getElementById("poHost");
+  if(!host) return; // PO view not currently mounted (e.g. PO created from another module)
   if(!rows.length){ host.innerHTML=`<div class="empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><h4>No purchase orders yet</h4><p>Create your first PO to start tracking.</p></div>`; return; }
   host.innerHTML=`<div class="po-scroll"><table class="data po-table" style="min-width:1000px"><thead><tr><th>PO Number</th><th>Supplier</th><th>Campus / Project</th><th>PR Number</th><th>Items</th><th>Amount</th><th>Status</th><th>Order Date</th><th>Expected Delivery</th><th>Attachment</th><th>Action</th></tr></thead><tbody>${
     rows.map(p=>{
@@ -2499,6 +2532,7 @@ async function doSavePO(id){
   }
   poRememberItems(obj.items);
   _poFromRecord=null;
+  if(typeof spLinkPOToRequest==="function") spLinkPOToRequest(obj);
   saveDB(); closeModal(); paintPO(); buildNav();
   if(typeof renderProcurement==="function" && CURRENT==="procurement" && document.getElementById("tableHost")) renderProcurement();
 }
@@ -3450,6 +3484,1738 @@ const MAINT_PROGRAMS={
 const QUARTERS=[{q:1,label:"Q1",months:"Jan-Mar"},{q:2,label:"Q2",months:"Apr-Jun"},{q:3,label:"Q3",months:"Jul-Sep"},{q:4,label:"Q4",months:"Oct-Dec"}];
 const MAINT_ROLES=["Super Admin","Procurement Manager","Maintenance Coordinator","Admin Officer","Technician","Finance Reviewer","Management Approver","View-Only User"];
 
+/* ============================================================
+   AC SPARE PARTS & REPLACEMENT MODULE  (Phases 1-2)
+   Datasets: acSpareRequests, acSpareReceipts, acReplacementRecords, acSpareAuditLogs
+   Preserves all existing AC / procurement / PO functionality.
+============================================================ */
+const SP_PRIORITIES=["Low","Medium","High","Critical"];
+const SP_UOMS=["pcs","set","unit","box","kg","g","L","mL","m","roll","pack","pair","kit"];
+const SP_ACTYPES=["Single Split","VRF"];
+const SP_MAINT_CATS=["PM","CM","EM"];
+// Full procurement workflow (spec section 6)
+const SP_STATUSES=["Spare Parts Needed","Technical Specification Pending","Specification Confirmed","Pending Approved PR","Approved PR Received","Requesting Quotation","Quotation Received","Pending Supplier Selection","Supplier Approved","Purchase Order Created","Ordered","Partially Delivered","Delivered","Waiting for Installation","Installation Scheduled","Installed","Testing","Completed","Closed","On Hold","Cancelled"];
+const SP_OPEN_STATUSES=SP_STATUSES.filter(s=>!["Completed","Closed","Cancelled"].includes(s));
+const SP_PROC_CATEGORY="AC Spare Parts & Maintenance"; // procurement category to auto-create
+const sp_usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+function spNow(){ return Date.now(); }
+function spUser(){ return (SESSION&&SESSION.name)||"System"; }
+
+// ---- permissions (reuse existing role architecture) ----
+function spRole(){ return (SESSION&&SESSION.role)||"user"; }
+function spCanEdit(){ return ["superadmin","admin"].includes(spRole()); }        // create/edit/process
+function spCanFinance(){ return ["superadmin","admin"].includes(spRole()); }      // prices/suppliers/PO
+function spCanDelete(){ return spRole()==="superadmin"; }
+function spCanException(){ return ["superadmin","admin"].includes(spRole()); }     // authorize qty exceptions
+
+// ---- sequential request number: AC-SPR-YYYY-0001 (no duplicates across delete/import/year) ----
+function spNextRequestNo(year){
+  year=year||new Date().getFullYear();
+  const prefix="AC-SPR-"+year+"-";
+  let max=0;
+  DB.acSpareRequests.forEach(r=>{
+    const m=String(r.reqNo||"").match(new RegExp("^AC-SPR-"+year+"-(\\d+)$"));
+    if(m){ const n=parseInt(m[1],10); if(n>max) max=n; }
+  });
+  return prefix+String(max+1).padStart(4,"0");
+}
+// ---- open/overdue badge count ----
+function spIsOverdue(r){
+  if(!r) return false;
+  if(["Completed","Closed","Cancelled"].includes(r.status)) return false;
+  const d=r.requiredDate||r.expectedDelivery;
+  if(!d) return false;
+  return new Date(d) < new Date(new Date().toDateString());
+}
+function spOpenOverdueCount(){
+  return DB.acSpareRequests.filter(r=>SP_OPEN_STATUSES.includes(r.status)||spIsOverdue(r)).length;
+}
+
+// ---- audit trail ----
+function spAudit(reqId,action,prevStatus,newStatus,remarks){
+  DB.acSpareAuditLogs.push({id:uid(),reqId,action,prevStatus:prevStatus||"",newStatus:newStatus||"",at:spNow(),by:spUser(),remarks:remarks||""});
+}
+
+// ---- line-item cost calc ----
+function spLineEstTotal(li){ return (Number(li.qtyRequested)||0)*(Number(li.estUnitPrice)||0); }
+function spLineActTotal(li){ return (Number(li.qtyOrdered)||0)*(Number(li.actUnitPrice)||0); }
+function spReqEstTotal(r){ return (r.lines||[]).reduce((s,li)=>s+spLineEstTotal(li),0); }
+function spReqActTotal(r){ return (r.lines||[]).reduce((s,li)=>s+spLineActTotal(li),0); }
+function spReqPartsCount(r){ return (r.lines||[]).length; }
+
+// ---- delivery / replacement progress helpers ----
+function spDeliveryProgress(r){
+  const lines=r.lines||[]; if(!lines.length) return {pct:0,text:"—"};
+  let ord=0,rec=0; lines.forEach(li=>{ ord+=(Number(li.qtyOrdered)||0); rec+=(Number(li.qtyReceived)||0); });
+  if(ord<=0) return {pct:0,text:"Not ordered"};
+  const pct=Math.min(100,Math.round(rec/ord*100));
+  return {pct,text:rec+" / "+ord+" recv"};
+}
+function spReplacementProgress(r){
+  const lines=r.lines||[]; if(!lines.length) return {pct:0,text:"—"};
+  let rec=0,ins=0; lines.forEach(li=>{ rec+=(Number(li.qtyReceived)||0); ins+=(Number(li.qtyInstalled)||0); });
+  if(rec<=0) return {pct:0,text:"Awaiting parts"};
+  const pct=Math.min(100,Math.round(ins/rec*100));
+  return {pct,text:ins+" / "+rec+" inst"};
+}
+
+// ---- AC unit lookup ----
+function spUnitLabel(u){ if(!u) return ""; return (u.assetId||u.systemId||"Unit")+" — "+(u.campus||"")+(u.building?(" / "+u.building):""); }
+function spFindUnit(id){ return DB.acUnits.find(u=>u.id===id); }
+
+// ============================================================
+//  DISPATCHER
+// ============================================================
+function paintSpare(tab){
+  const host=document.getElementById("maintBody");
+  if(!host) return;
+  switch(tab){
+    case "requests": spPaintRequests(host); break;
+    case "purchasing": spPaintPurchasing(host); break;
+    case "delivery": spPaintDelivery(host); break;
+    case "history": spPaintHistory(host); break;
+    case "reports": spPaintReports(host); break;
+    default: host.innerHTML="<div class='empty'><h4>Spare Parts &amp; Replacement</h4></div>";
+  }
+}
+
+// ============================================================
+//  TAB 1: SPARE PARTS REQUESTS  (table + filters)
+// ============================================================
+function spFilteredRequests(){
+  let rows=DB.acSpareRequests.slice();
+  const f=_spFilter;
+  if(f.q){ const q=f.q.toLowerCase(); rows=rows.filter(r=>{
+    const parts=(r.lines||[]).map(li=>li.partName+" "+li.partNumber).join(" ");
+    return [r.reqNo,r.assetId,r.prNumber,r.poNumber,parts,r.faultDescription].join(" ").toLowerCase().includes(q);
+  }); }
+  if(f.campus) rows=rows.filter(r=>r.campus===f.campus);
+  if(f.actype) rows=rows.filter(r=>r.acType===f.actype);
+  if(f.cat) rows=rows.filter(r=>r.maintCategory===f.cat);
+  if(f.priority) rows=rows.filter(r=>r.priority===f.priority);
+  if(f.supplier) rows=rows.filter(r=>(r.selectedSupplier||r.proposedSupplier)===f.supplier);
+  if(f.status) rows=rows.filter(r=>r.status===f.status);
+  if(f.delivery) rows=rows.filter(r=>r.deliveryStatus===f.delivery);
+  if(f.responsible) rows=rows.filter(r=>r.responsible===f.responsible);
+  if(f.from) rows=rows.filter(r=>r.requestDate&&r.requestDate>=f.from);
+  if(f.to) rows=rows.filter(r=>r.requestDate&&r.requestDate<=f.to);
+  if(f.overdue) rows=rows.filter(spIsOverdue);
+  if(f.openonly) rows=rows.filter(r=>SP_OPEN_STATUSES.includes(r.status));
+  rows.sort((a,b)=>String(b.reqNo||"").localeCompare(String(a.reqNo||"")));
+  return rows;
+}
+function spStatusBadge(s){
+  const open=SP_OPEN_STATUSES.includes(s);
+  const done=["Completed","Closed"].includes(s);
+  const cancel=s==="Cancelled";
+  const col=cancel?"#dc2626":done?"#059669":open?"#2563eb":"#697586";
+  return `<span class="campus-tag" style="background:${col}22;color:${col};white-space:nowrap">${esc(s||"—")}</span>`;
+}
+function spPriorityBadge(p){
+  const col={Low:"#697586",Medium:"#2563eb",High:"#d97706",Critical:"#dc2626"}[p]||"#697586";
+  return `<span class="campus-tag" style="background:${col}22;color:${col}">${esc(p||"—")}</span>`;
+}
+function spProgressBar(pct,text){
+  return `<div style="min-width:96px"><div style="height:6px;background:var(--surface-2);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${pct>=100?'#059669':'#2563eb'}"></div></div><div class="muted" style="font-size:10.5px;margin-top:2px">${esc(text)}</div></div>`;
+}
+function spPaintRequests(host){
+  const suppliers=[...new Set(DB.acSpareRequests.map(r=>r.selectedSupplier||r.proposedSupplier).filter(Boolean))];
+  const responsibles=[...new Set(DB.acSpareRequests.map(r=>r.responsible).filter(Boolean))];
+  const rows=spFilteredRequests();
+  const f=_spFilter;
+  const totEst=rows.reduce((s,r)=>s+spReqEstTotal(r),0);
+  const totAct=rows.reduce((s,r)=>s+spReqActTotal(r),0);
+  host.innerHTML=`
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px">
+      <div style="font-size:15px;font-weight:800">Spare Parts Requests <span class="muted" style="font-size:12.5px;font-weight:600">${rows.length} request(s) · Est ${sp_usd(totEst)} · Act ${sp_usd(totAct)}</span></div>
+      <div class="grow"></div>
+      ${spCanEdit()?`<button class="btn btn-primary" onclick="spOpenRequestForm()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Request</button>`:""}
+      <button class="btn btn-ghost btn-sm" onclick="spExportRequestsExcel()">Excel</button>
+      <button class="btn btn-ghost btn-sm" onclick="spPrintRequests()">Print</button>
+    </div>
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px">
+      <input class="filter-sel" placeholder="Search ID / asset / part / PR / PO..." style="min-width:190px" value="${esc(f.q)}" oninput="_spFilter.q=this.value;renderMaintenance()">
+      <select class="filter-sel" onchange="_spFilter.campus=this.value;renderMaintenance()"><option value="">All Campus</option>${acCampuses().map(c=>`<option ${f.campus===c?'selected':''}>${c}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_spFilter.actype=this.value;renderMaintenance()"><option value="">All AC Type</option>${SP_ACTYPES.map(c=>`<option ${f.actype===c?'selected':''}>${c}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_spFilter.cat=this.value;renderMaintenance()"><option value="">All Category</option>${SP_MAINT_CATS.map(c=>`<option ${f.cat===c?'selected':''}>${c}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_spFilter.priority=this.value;renderMaintenance()"><option value="">All Priority</option>${SP_PRIORITIES.map(c=>`<option ${f.priority===c?'selected':''}>${c}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_spFilter.status=this.value;renderMaintenance()"><option value="">All Status</option>${SP_STATUSES.map(c=>`<option ${f.status===c?'selected':''}>${c}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_spFilter.supplier=this.value;renderMaintenance()"><option value="">All Supplier</option>${suppliers.map(c=>`<option ${f.supplier===c?'selected':''}>${esc(c)}</option>`).join("")}</select>
+      <select class="filter-sel" onchange="_spFilter.responsible=this.value;renderMaintenance()"><option value="">All Responsible</option>${responsibles.map(c=>`<option ${f.responsible===c?'selected':''}>${esc(c)}</option>`).join("")}</select>
+      <label class="muted" style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px"><input type="checkbox" ${f.overdue?"checked":""} onchange="_spFilter.overdue=this.checked;renderMaintenance()"> Overdue</label>
+      <label class="muted" style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px"><input type="checkbox" ${f.openonly?"checked":""} onchange="_spFilter.openonly=this.checked;renderMaintenance()"> Open only</label>
+    </div>
+    <div class="table-wrap" style="overflow-x:auto"><table class="sp-table"><thead><tr>
+      <th style="position:sticky;left:0;background:var(--surface);min-width:135px">Request ID</th>
+      <th>Date</th><th>Priority</th><th>Campus</th><th>Asset ID</th><th>AC Type</th><th>Fault</th>
+      <th style="text-align:center">Parts</th><th style="text-align:right">Est Cost</th><th style="text-align:right">Act Cost</th>
+      <th>Approved PR</th><th>Supplier</th><th>PO Number</th><th>Exp. Delivery</th>
+      <th>Delivery</th><th>Replacement</th><th>Status</th><th>Responsible</th><th>Att</th><th style="min-width:120px">Actions</th>
+    </tr></thead><tbody>${rows.length?rows.map(r=>spRequestRow(r)).join(""):`<tr><td colspan="20"><div class="empty" style="padding:26px"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><h4>No spare-parts requests</h4><p>${spCanEdit()?'Click “New Request”, or use “Request Spare Parts” on an AC record.':'No requests to display.'}</p></div></td></tr>`}</tbody></table></div>`;
+}
+function spRequestRow(r){
+  const dp=spDeliveryProgress(r), rp=spReplacementProgress(r);
+  const overdue=spIsOverdue(r);
+  const att=(r.files&&r.files.length)?`<span class="att-pill" onclick="spPreviewFile('${r.id}',0)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>${r.files.length}</span>`:'<span class="muted">—</span>';
+  const hasProc=r.procurementId&&DB.procurement.some(p=>p.id===r.procurementId);
+  const hasPO=Array.isArray(r.poIds)&&r.poIds.length;
+  const fin=spCanFinance();
+  let proc="";
+  if(!hasProc){
+    proc=fin?`<button class="act-btn" title="Create Procurement Record" onclick="spCreateProcurement('${r.id}')" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>`:"";
+  } else {
+    proc=`<button class="act-btn" title="View Procurement Record" onclick="spGotoProcurement('${r.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>`;
+    if(hasPO) proc+=`<button class="act-btn" title="View Purchase Order" onclick="spViewPO('${r.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6"/></svg></button>`;
+    else if(fin) proc+=`<button class="act-btn" title="Create Purchase Order" onclick="spCreatePOFromRequest('${r.id}')" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="12" y1="9" x2="12" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/></svg></button>`;
+  }
+  return `<tr>
+    <td style="position:sticky;left:0;background:var(--surface)"><b>${esc(r.reqNo||"—")}</b>${overdue?` <span class="status s-overdue" style="margin-left:2px">Overdue</span>`:""}</td>
+    <td>${fmtDateUS(r.requestDate)}</td>
+    <td>${spPriorityBadge(r.priority)}</td>
+    <td>${r.campus?`<span class="campus-tag ${campusTagClass(r.campus)}">${esc(r.campus)}</span>`:'<span class="muted">—</span>'}</td>
+    <td><b>${esc(r.assetId||"—")}</b></td>
+    <td>${esc(r.acType||"—")}</td>
+    <td class="ell" style="max-width:170px" title="${esc(r.faultDescription||'')}">${esc(r.faultDescription||"—")}</td>
+    <td style="text-align:center">${spReqPartsCount(r)}</td>
+    <td style="text-align:right">${sp_usd(spReqEstTotal(r))}</td>
+    <td style="text-align:right">${sp_usd(spReqActTotal(r))}</td>
+    <td>${esc(r.prNumber||"—")}</td>
+    <td>${esc(r.selectedSupplier||r.proposedSupplier||"—")}</td>
+    <td>${esc(r.poNumber||"—")}</td>
+    <td>${fmtDateUS(r.expectedDelivery)}</td>
+    <td>${spProgressBar(dp.pct,dp.text)}</td>
+    <td>${spProgressBar(rp.pct,rp.text)}</td>
+    <td>${spStatusBadge(r.status)}</td>
+    <td>${esc(r.responsible||"—")}</td>
+    <td>${att}</td>
+    <td><div class="row-actions" style="display:flex;gap:2px;flex-wrap:wrap">
+      <button class="act-btn" title="View" onclick="spViewRequest('${r.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      ${spCanEdit()?`<button class="act-btn" title="Edit" onclick="spOpenRequestForm('${r.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>`:""}
+      ${proc}
+      ${(spCanEdit()&&hasPO)?`<button class="act-btn" title="Record Delivery" onclick="spOpenReceiveForm('${r.id}')" style="color:#0891b2"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16h2a2 2 0 0 0 2-2V7l-4-4H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg></button>`:""}
+      ${(spCanEdit()&&(r.lines||[]).some(li=>spAcceptedForLine(r.id,li.id)>0))?`<button class="act-btn" title="Record Installation" onclick="spOpenInstallForm('${r.id}')" style="color:#7c3aed"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></button>`:""}
+      <button class="act-btn" title="Print" onclick="spPrintOne('${r.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>
+      ${spCanDelete()?`<button class="act-btn del" title="Delete" onclick="spDeleteRequest('${r.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>`:""}
+    </div></td>
+  </tr>`;
+}
+
+// ---- placeholders for other tabs (filled in later phases) ----
+function spPaintPurchasing(host){
+  const rows=DB.acSpareRequests.filter(r=>!["Cancelled"].includes(r.status));
+  host.innerHTML=`<div class="card"><div class="card-head"><h3>Purchasing Tracker</h3></div><div class="card-body"><p class="muted" style="font-size:13px">Procurement &amp; PO integration for spare-parts requests appears here. Create a request first, then use “Create Procurement Record”. (Full purchasing actions arrive in the next phase.)</p>${rows.length?`<div class="table-wrap" style="overflow-x:auto;margin-top:10px"><table><thead><tr><th>Request ID</th><th>Asset</th><th>Status</th><th>Approved PR</th><th>Supplier</th><th>PO Number</th><th>Procurement</th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.reqNo||"")}</b></td><td>${esc(r.assetId||"—")}</td><td>${spStatusBadge(r.status)}</td><td>${esc(r.prNumber||"—")}</td><td>${esc(r.selectedSupplier||r.proposedSupplier||"—")}</td><td>${esc(r.poNumber||"—")}</td><td>${r.procurementId?`<button class="btn btn-ghost btn-sm" onclick="spGotoProcurement('${r.id}')">View</button>`:'<span class="muted">Not created</span>'}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty" style="margin-top:10px"><p>No requests yet.</p></div>'}</div></div>`;
+}
+function spPaintDelivery(host){
+  host.innerHTML=`<div class="card"><div class="card-head"><h3>Delivery &amp; Installation</h3></div><div class="card-body"><p class="muted" style="font-size:13px">Receiving (partial/complete) and installation/replacement recording will appear here in the next phase. Requests currently awaiting delivery or installation:</p>${(()=>{const rows=DB.acSpareRequests.filter(r=>["Ordered","Partially Delivered","Delivered","Waiting for Installation","Installation Scheduled","Installed","Testing"].includes(r.status));return rows.length?`<div class="table-wrap" style="overflow-x:auto;margin-top:10px"><table><thead><tr><th>Request ID</th><th>Asset</th><th>Status</th><th>Delivery</th><th>Replacement</th></tr></thead><tbody>${rows.map(r=>{const dp=spDeliveryProgress(r),rp=spReplacementProgress(r);return `<tr><td><b>${esc(r.reqNo||"")}</b></td><td>${esc(r.assetId||"—")}</td><td>${spStatusBadge(r.status)}</td><td>${spProgressBar(dp.pct,dp.text)}</td><td>${spProgressBar(rp.pct,rp.text)}</td></tr>`;}).join("")}</tbody></table></div>`:'<div class="empty" style="margin-top:10px"><p>Nothing in delivery/installation stage.</p></div>';})()}</div></div>`;
+}
+function spPaintHistory(host){
+  const recs=DB.acReplacementRecords.slice().sort((a,b)=>(b.replacementDate||"").localeCompare(a.replacementDate||""));
+  host.innerHTML=`<div class="card"><div class="card-head"><h3>Replacement History</h3></div><div class="card-body">${recs.length?`<div class="table-wrap" style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Asset</th><th>New Part</th><th>Qty</th><th>Technician</th><th>Test Result</th><th>Returned to Service</th></tr></thead><tbody>${recs.map(x=>`<tr><td>${fmtDateUS(x.replacementDate)}</td><td>${esc(x.assetId||"—")}</td><td>${esc(x.newPartName||"—")}</td><td>${esc(x.qtyInstalled||"")}</td><td>${esc(x.technician||"—")}</td><td>${esc(x.testResult||"—")}</td><td>${esc(x.returnedToService||"—")}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty"><h4>No replacements recorded yet</h4><p>Completed installations will appear here.</p></div>'}</div></div>`;
+}
+function spPaintReports(host){
+  host.innerHTML=`<div class="card"><div class="card-head"><h3>Spare Parts Reports</h3></div><div class="card-body"><p class="muted" style="font-size:13px">Printable &amp; Excel spare-parts reports arrive in a later phase. For now you can export the requests list:</p><div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-primary btn-sm" onclick="spExportRequestsExcel()">Export Requests (Excel)</button><button class="btn btn-ghost btn-sm" onclick="spPrintRequests()">Print Requests</button></div></div></div>`;
+}
+
+// ============================================================
+//  REQUEST FORM  (sections A-D + line items + attachments)
+// ============================================================
+let _spLines=[];      // working line items during form edit
+let _spEditId=null;   // request being edited (null=new)
+let _spPrefill=null;  // prefill payload from AC record integration (phase 3)
+
+function spBlankLine(){
+  return {id:uid(),partName:"",partNumber:"",spec:"",compat:"",preferredBrand:"",uom:"pcs",
+    qtyRequested:1,qtyApproved:0,qtyOrdered:0,qtyReceived:0,qtyInstalled:0,
+    estUnitPrice:0,actUnitPrice:0,proposedSupplier:"",selectedSupplier:"",
+    expDelivery:"",actDelivery:"",warrantyPeriod:"",warrantyExpiry:"",remarks:""};
+}
+function spOpenRequestForm(id){
+  if(!spCanEdit()){ toast("Permission denied","You do not have permission to create or edit requests","err"); return; }
+  const r=id?DB.acSpareRequests.find(x=>x.id===id):null;
+  _spEditId=id||null;
+  _stagedFiles=r&&r.files?JSON.parse(JSON.stringify(r.files)):[];
+  _spLines=r&&Array.isArray(r.lines)&&r.lines.length?JSON.parse(JSON.stringify(r.lines)):[spBlankLine()];
+  const pf=_spPrefill||{}; _spPrefill=null; // consume prefill once
+  const val=(k,d)=> r?(r[k]!=null?r[k]:""):(pf[k]!=null?pf[k]:(d!=null?d:""));
+  const today=new Date().toISOString().slice(0,10);
+  const reqNo=r?r.reqNo:spNextRequestNo(new Date().getFullYear());
+  const campusOpts=acCampuses();
+  const unitOpts=DB.acUnits.slice();
+  const sel=(cur,opts)=>opts.map(o=>`<option ${cur===o?'selected':''}>${esc(o)}</option>`).join("");
+  openModal(`
+    <div class="modal-head"><h3>${id?"Edit":"New"} Spare Parts Request</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="modal-body">
+      <div class="sp-sec-title">A. Request Information</div>
+      <div class="form-grid">
+        <div class="field"><label>Spare Parts Request ID</label><input id="sp_reqNo" value="${esc(reqNo)}" readonly></div>
+        <div class="field"><label class="req">Request Date</label><input type="date" id="sp_requestDate" value="${esc(val('requestDate',today))}"></div>
+        <div class="field"><label>Requested By</label><input id="sp_requestedBy" value="${esc(val('requestedBy',spUser()))}"></div>
+        <div class="field"><label>Department</label><input id="sp_department" value="${esc(val('department'))}"></div>
+        <div class="field"><label class="req">Campus</label><select id="sp_campus"><option value="">— Select —</option>${sel(val('campus'),campusOpts)}</select></div>
+        <div class="field"><label>Building</label><input id="sp_building" value="${esc(val('building'))}"></div>
+        <div class="field"><label>Floor</label><input id="sp_floor" value="${esc(val('floor'))}"></div>
+        <div class="field"><label>Room / Location</label><input id="sp_room" value="${esc(val('room'))}"></div>
+        <div class="field"><label class="req">Priority</label><select id="sp_priority">${sel(val('priority','Medium'),SP_PRIORITIES)}</select></div>
+        <div class="field"><label>Required Date</label><input type="date" id="sp_requiredDate" value="${esc(val('requiredDate'))}"></div>
+        <div class="field"><label>Maintenance Category</label><select id="sp_maintCategory"><option value="">—</option>${sel(val('maintCategory'),SP_MAINT_CATS)}</select></div>
+        <div class="field"><label>Linked Maintenance Record ID</label><input id="sp_linkedMaint" value="${esc(val('linkedMaint'))}"></div>
+        <div class="field"><label>Linked Corrective (CM) ID</label><input id="sp_linkedCM" value="${esc(val('linkedCM'))}"></div>
+        <div class="field"><label>Responsible Person</label><input id="sp_responsible" value="${esc(val('responsible'))}"></div>
+        <div class="field"><label>Current Overall Status</label><select id="sp_status">${sel(val('status','Spare Parts Needed'),SP_STATUSES)}</select></div>
+      </div>
+
+      <div class="sp-sec-title">B. AC Equipment Information</div>
+      <div class="form-grid">
+        <div class="field"><label>AC System Type</label><select id="sp_acType"><option value="">—</option>${sel(val('acType'),SP_ACTYPES)}</select></div>
+        <div class="field"><label>Asset ID (from register)</label><select id="sp_assetSel" onchange="spFillFromUnit(this.value)"><option value="">— Select Equipment —</option>${unitOpts.map(u=>`<option value="${u.id}" ${r&&r.assetUnitId===u.id?'selected':''}>${esc(spUnitLabel(u))}</option>`).join("")}</select></div>
+        <div class="field"><label>Asset ID (text)</label><input id="sp_assetId" value="${esc(val('assetId'))}"></div>
+        <div class="field"><label>VRF System ID</label><input id="sp_vrfSystemId" value="${esc(val('vrfSystemId'))}"></div>
+        <div class="field"><label>Parent Outdoor Unit</label><input id="sp_parentOutdoor" value="${esc(val('parentOutdoor'))}"></div>
+        <div class="field"><label>Indoor / Outdoor</label><select id="sp_inout"><option value="">—</option>${sel(val('inout'),["Indoor","Outdoor"])}</select></div>
+        <div class="field"><label>Brand</label><input id="sp_brand" value="${esc(val('brand'))}"></div>
+        <div class="field"><label>Model</label><input id="sp_model" value="${esc(val('model'))}"></div>
+        <div class="field"><label>Serial Number</label><input id="sp_serial" value="${esc(val('serial'))}"></div>
+        <div class="field"><label>Capacity</label><input id="sp_capacity" value="${esc(val('capacity'))}"></div>
+        <div class="field"><label>Current Condition</label><select id="sp_condition"><option value="">—</option>${sel(val('condition'),AC_CONDITIONS)}</select></div>
+        <div class="field"><label>Current Operating Status</label><select id="sp_opStatus"><option value="">—</option>${sel(val('opStatus'),AC_OP_STATUS)}</select></div>
+        <div class="field full"><label>Equipment Location</label><input id="sp_equipLocation" value="${esc(val('equipLocation'))}"></div>
+      </div>
+
+      <div class="sp-sec-title">C. Technical Assessment</div>
+      <div class="form-grid">
+        <div class="field full"><label>Fault Description</label><textarea id="sp_faultDescription" rows="2">${esc(val('faultDescription'))}</textarea></div>
+        <div class="field full"><label>Inspection Findings</label><textarea id="sp_findings" rows="2">${esc(val('findings'))}</textarea></div>
+        <div class="field"><label>Root Cause</label><input id="sp_rootCause" value="${esc(val('rootCause'))}"></div>
+        <div class="field"><label>Recommended Repair Action</label><input id="sp_repairAction" value="${esc(val('repairAction'))}"></div>
+        <div class="field"><label>Reason for Replacement</label><input id="sp_replaceReason" value="${esc(val('replaceReason'))}"></div>
+        <div class="field"><label>Temporary Action Taken</label><input id="sp_tempAction" value="${esc(val('tempAction'))}"></div>
+        <div class="field"><label>Existing Part Condition</label><input id="sp_existingCond" value="${esc(val('existingCond'))}"></div>
+        <div class="field"><label>Estimated Downtime (h)</label><input type="number" min="0" step="0.5" id="sp_downtime" value="${esc(val('downtime'))}"></div>
+        <div class="field"><label>Tech Spec Confirmed</label><select id="sp_specConfirmed">${sel(val('specConfirmed','No'),["No","Yes"])}</select></div>
+        <div class="field"><label>Confirmed By</label><input id="sp_confirmedBy" value="${esc(val('confirmedBy'))}"></div>
+        <div class="field"><label>Confirmation Date</label><input type="date" id="sp_confirmDate" value="${esc(val('confirmDate'))}"></div>
+        <div class="field full"><label>Technical Remarks</label><textarea id="sp_techRemarks" rows="2">${esc(val('techRemarks'))}</textarea></div>
+      </div>
+
+      <div class="sp-sec-title" style="display:flex;justify-content:space-between;align-items:center">D. Spare-Parts Line Items <button class="btn btn-ghost btn-sm" onclick="spAddLine()">+ Add Item</button></div>
+      <div id="sp_linesHost"></div>
+      <div id="sp_linesTotals" style="text-align:right;font-weight:700;margin-top:6px"></div>
+
+      <div class="sp-sec-title">Attachments</div>
+      <label class="file-drop"><input type="file" multiple accept="${FILE_TYPES}" onchange="handleFileInput(this)"><span>Click to attach photos, reports, specs, quotations, POs, invoices, delivery/warranty docs…</span></label>
+      <div id="fileList" class="file-list"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="spSaveRequest()">${id?"Save Changes":"Create Request"}</button></div>
+  `,{size:"wide"});
+  spRenderLines();
+  renderStagedFiles();
+}
+function spAddLine(){ _spLines.push(spBlankLine()); spRenderLines(); }
+function spRemoveLine(i){ _spLines.splice(i,1); if(!_spLines.length)_spLines.push(spBlankLine()); spRenderLines(); }
+function spLineInput(i,field,val,isNum){
+  _spLines[i][field]= isNum ? Math.max(0,Number(val)||0) : val;
+  // live recalc totals only (avoid full re-render so focus stays)
+  spUpdateLineTotals();
+}
+function spUpdateLineTotals(){
+  _spLines.forEach((li,i)=>{
+    const et=document.getElementById("sp_et_"+i), at=document.getElementById("sp_at_"+i);
+    if(et) et.textContent=sp_usd(spLineEstTotal(li));
+    if(at) at.textContent=sp_usd(spLineActTotal(li));
+  });
+  const totEst=_spLines.reduce((s,li)=>s+spLineEstTotal(li),0);
+  const totAct=_spLines.reduce((s,li)=>s+spLineActTotal(li),0);
+  const host=document.getElementById("sp_linesTotals");
+  if(host) host.innerHTML=`Request Total — Estimated: <span style="color:var(--brand)">${sp_usd(totEst)}</span> &nbsp;·&nbsp; Actual: <span style="color:#059669">${sp_usd(totAct)}</span>`;
+}
+function spRenderLines(){
+  const host=document.getElementById("sp_linesHost");
+  if(!host) return;
+  const suppliers=[...new Set(DB.suppliers.map(s=>s.name).filter(Boolean))];
+  const supOpts=v=>`<option value="">—</option>`+suppliers.map(s=>`<option ${v===s?'selected':''}>${esc(s)}</option>`).join("")+(v&&!suppliers.includes(v)?`<option selected>${esc(v)}</option>`:"");
+  host.innerHTML=_spLines.map((li,i)=>`
+    <div class="sp-line" style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:12.5px">Item ${i+1}</b><button class="act-btn del" title="Remove line" onclick="spRemoveLine(${i})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div>
+      <div class="form-grid">
+        <div class="field"><label class="req">Spare Part Name</label><input value="${esc(li.partName)}" oninput="spLineInput(${i},'partName',this.value)"></div>
+        <div class="field"><label>Part Number</label><input value="${esc(li.partNumber)}" oninput="spLineInput(${i},'partNumber',this.value)"></div>
+        <div class="field"><label>Model / Spec</label><input value="${esc(li.spec)}" oninput="spLineInput(${i},'spec',this.value)"></div>
+        <div class="field"><label>Compatible AC Brand/Model</label><input value="${esc(li.compat)}" oninput="spLineInput(${i},'compat',this.value)"></div>
+        <div class="field"><label>Preferred Brand</label><input value="${esc(li.preferredBrand)}" oninput="spLineInput(${i},'preferredBrand',this.value)"></div>
+        <div class="field"><label>UoM</label><select onchange="spLineInput(${i},'uom',this.value)">${SP_UOMS.map(u=>`<option ${li.uom===u?'selected':''}>${u}</option>`).join("")}</select></div>
+        <div class="field"><label>Qty Requested</label><input type="number" min="0" step="1" value="${li.qtyRequested}" oninput="spLineInput(${i},'qtyRequested',this.value,true)"></div>
+        <div class="field"><label>Qty Approved</label><input type="number" min="0" step="1" value="${li.qtyApproved}" oninput="spLineInput(${i},'qtyApproved',this.value,true)"></div>
+        <div class="field"><label>Qty Ordered</label><input type="number" min="0" step="1" value="${li.qtyOrdered}" oninput="spLineInput(${i},'qtyOrdered',this.value,true)"></div>
+        <div class="field"><label>Qty Received</label><input type="number" min="0" step="1" value="${li.qtyReceived}" oninput="spLineInput(${i},'qtyReceived',this.value,true)"></div>
+        <div class="field"><label>Qty Installed</label><input type="number" min="0" step="1" value="${li.qtyInstalled}" oninput="spLineInput(${i},'qtyInstalled',this.value,true)"></div>
+        <div class="field"><label>Est. Unit Price</label><input type="number" min="0" step="0.01" value="${li.estUnitPrice}" oninput="spLineInput(${i},'estUnitPrice',this.value,true)"></div>
+        <div class="field"><label>Actual Unit Price</label><input type="number" min="0" step="0.01" value="${li.actUnitPrice}" oninput="spLineInput(${i},'actUnitPrice',this.value,true)"></div>
+        <div class="field"><label>Estimated Total</label><input readonly value="${sp_usd(spLineEstTotal(li))}" id="sp_etf_${i}" style="display:none"><div class="sp-total-box" id="sp_et_${i}">${sp_usd(spLineEstTotal(li))}</div></div>
+        <div class="field"><label>Actual Total</label><div class="sp-total-box" id="sp_at_${i}">${sp_usd(spLineActTotal(li))}</div></div>
+        <div class="field"><label>Proposed Supplier</label><select onchange="spLineInput(${i},'proposedSupplier',this.value)">${supOpts(li.proposedSupplier)}</select></div>
+        <div class="field"><label>Selected Supplier</label><select onchange="spLineInput(${i},'selectedSupplier',this.value)">${supOpts(li.selectedSupplier)}</select></div>
+        <div class="field"><label>Expected Delivery</label><input type="date" value="${esc(li.expDelivery)}" oninput="spLineInput(${i},'expDelivery',this.value)"></div>
+        <div class="field"><label>Actual Delivery</label><input type="date" value="${esc(li.actDelivery)}" oninput="spLineInput(${i},'actDelivery',this.value)"></div>
+        <div class="field"><label>Warranty Period</label><input value="${esc(li.warrantyPeriod)}" oninput="spLineInput(${i},'warrantyPeriod',this.value)"></div>
+        <div class="field"><label>Warranty Expiry</label><input type="date" value="${esc(li.warrantyExpiry)}" oninput="spLineInput(${i},'warrantyExpiry',this.value)"></div>
+        <div class="field full"><label>Remarks</label><input value="${esc(li.remarks)}" oninput="spLineInput(${i},'remarks',this.value)"></div>
+      </div>
+    </div>`).join("");
+  spUpdateLineTotals();
+}
+// Auto-fill equipment info when an asset is selected from the register
+function spFillFromUnit(unitId){
+  const u=spFindUnit(unitId); if(!u) return;
+  const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
+  setv("sp_assetId",u.assetId||u.systemId||"");
+  setv("sp_brand",u.brand||""); setv("sp_model",u.model||""); setv("sp_serial",u.serial||"");
+  setv("sp_capacity",u.capacity||""); setv("sp_condition",u.condition||""); setv("sp_opStatus",u.opStatus||"");
+  setv("sp_equipLocation",[u.building,u.floor,u.location].filter(Boolean).join(" / "));
+  if(!document.getElementById("sp_campus").value) setv("sp_campus",u.campus||"");
+  if(u.kind==="vrf-out"){ document.getElementById("sp_acType").value="VRF"; setv("sp_vrfSystemId",u.systemId||""); document.getElementById("sp_inout").value="Outdoor"; }
+  else if(u.kind==="vrf-in"){ document.getElementById("sp_acType").value="VRF"; document.getElementById("sp_inout").value="Indoor"; const parent=DB.acUnits.find(p=>p.id===u.parentId); if(parent){ setv("sp_vrfSystemId",parent.systemId||""); setv("sp_parentOutdoor",parent.systemId||parent.assetId||""); } }
+  else { document.getElementById("sp_acType").value="Single Split"; }
+}
+function spSaveRequest(){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const g=id=>{ const el=document.getElementById(id); return el?el.value:""; };
+  const requestDate=g("sp_requestDate"); const campus=g("sp_campus");
+  if(!requestDate){ toast("Request Date required","","err"); return; }
+  if(!campus){ toast("Campus required","","err"); return; }
+  // validate + guard line items
+  const cleanLines=_spLines.filter(li=>String(li.partName).trim()!=="");
+  if(!cleanLines.length){ toast("At least one spare part is required","Enter a part name in the line items","err"); return; }
+  for(const li of cleanLines){
+    if((Number(li.qtyRequested)||0)<0||(Number(li.estUnitPrice)||0)<0||(Number(li.actUnitPrice)||0)<0){ toast("No negative values","Quantities and prices must be 0 or more","err"); return; }
+    const req=Number(li.qtyRequested)||0, ord=Number(li.qtyOrdered)||0, rec=Number(li.qtyReceived)||0, ins=Number(li.qtyInstalled)||0;
+    if(rec>ord && !spCanException()){ toast("Received exceeds Ordered","Part \""+li.partName+"\": received cannot exceed ordered unless authorized","err"); return; }
+    if(ins>rec && !spCanException()){ toast("Installed exceeds Received","Part \""+li.partName+"\": installed cannot exceed received","err"); return; }
+  }
+  const assetSel=g("sp_assetSel");
+  const existing=_spEditId?DB.acSpareRequests.find(x=>x.id===_spEditId):null;
+  const prevStatus=existing?existing.status:"";
+  const obj=existing||{id:uid(),created:spNow(),createdBy:spUser(),procurementId:null,poIds:[],poNumber:"",files:[]};
+  Object.assign(obj,{
+    reqNo: existing?existing.reqNo:spNextRequestNo(new Date(requestDate).getFullYear()||new Date().getFullYear()),
+    requestDate, requestedBy:g("sp_requestedBy"), department:g("sp_department"), campus,
+    building:g("sp_building"), floor:g("sp_floor"), room:g("sp_room"),
+    priority:g("sp_priority"), requiredDate:g("sp_requiredDate"), maintCategory:g("sp_maintCategory"),
+    linkedMaint:g("sp_linkedMaint"), linkedCM:g("sp_linkedCM"), responsible:g("sp_responsible"),
+    status:g("sp_status"),
+    acType:g("sp_acType"), assetUnitId:assetSel||obj.assetUnitId||"", assetId:g("sp_assetId"),
+    vrfSystemId:g("sp_vrfSystemId"), parentOutdoor:g("sp_parentOutdoor"), inout:g("sp_inout"),
+    brand:g("sp_brand"), model:g("sp_model"), serial:g("sp_serial"), capacity:g("sp_capacity"),
+    condition:g("sp_condition"), opStatus:g("sp_opStatus"), equipLocation:g("sp_equipLocation"),
+    faultDescription:g("sp_faultDescription"), findings:g("sp_findings"), rootCause:g("sp_rootCause"),
+    repairAction:g("sp_repairAction"), replaceReason:g("sp_replaceReason"), tempAction:g("sp_tempAction"),
+    existingCond:g("sp_existingCond"), downtime:g("sp_downtime"), specConfirmed:g("sp_specConfirmed"),
+    confirmedBy:g("sp_confirmedBy"), confirmDate:g("sp_confirmDate"), techRemarks:g("sp_techRemarks"),
+    lines:cleanLines,
+    updated:spNow(), updatedBy:spUser()
+  });
+  // persist attachments (async), then finalize
+  persistStagedFiles(_stagedFiles).then(fileRefs=>{
+    obj.files=fileRefs;
+    if(!existing){ DB.acSpareRequests.push(obj); spAudit(obj.id,"Created","",obj.status,"Request created"); toast("Request created",obj.reqNo,"ok"); }
+    else { if(prevStatus!==obj.status) spAudit(obj.id,"Status changed",prevStatus,obj.status,""); else spAudit(obj.id,"Edited",prevStatus,obj.status,""); toast("Request updated",obj.reqNo,"ok"); }
+    saveDB(); buildNav(); closeModal();
+    _spEditId=null; _spLines=[];
+    if(CURRENT==="maintenance") renderMaintenance();
+  });
+}
+function spViewRequest(id){
+  const r=DB.acSpareRequests.find(x=>x.id===id); if(!r) return;
+  const line=(li,i)=>`<tr><td>${i+1}</td><td>${esc(li.partName)}</td><td>${esc(li.partNumber||"")}</td><td>${esc(li.uom)}</td><td class="n">${li.qtyRequested||0}</td><td class="n">${li.qtyOrdered||0}</td><td class="n">${li.qtyReceived||0}</td><td class="n">${li.qtyInstalled||0}</td><td class="n">${sp_usd(spLineEstTotal(li))}</td><td class="n">${sp_usd(spLineActTotal(li))}</td></tr>`;
+  const row=(l,v)=>v?`<div style="display:flex;gap:8px;padding:2px 0"><div class="muted" style="min-width:150px;font-size:12px">${l}</div><div style="font-size:12.5px">${esc(v)}</div></div>`:"";
+  const files=(r.files||[]).map((f,i)=>`<div class="file-row"><div class="fn" style="flex:1">${esc(f.name)}</div><button class="btn btn-sm btn-ghost" onclick="spPreviewFile('${id}',${i})">Preview</button></div>`).join("")||'<span class="muted">No attachments</span>';
+  openModal(`
+    <div class="modal-head"><h3>${esc(r.reqNo||"Request")} ${spStatusBadge(r.status)}</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div>${row("Request Date",fmtDateUS(r.requestDate))}${row("Requested By",r.requestedBy)}${row("Department",r.department)}${row("Priority",r.priority)}${row("Required Date",fmtDateUS(r.requiredDate))}${row("Responsible",r.responsible)}</div>
+        <div>${row("Campus",r.campus)}${row("Building",r.building)}${row("Floor",r.floor)}${row("Room",r.room)}${row("Maint. Category",r.maintCategory)}${row("Linked Maint/CM",[r.linkedMaint,r.linkedCM].filter(Boolean).join(" / "))}</div>
+        <div>${row("AC Type",r.acType)}${row("Asset ID",r.assetId)}${row("VRF System",r.vrfSystemId)}${row("Brand/Model",[r.brand,r.model].filter(Boolean).join(" "))}${row("Serial",r.serial)}${row("Capacity",r.capacity)}</div>
+        <div>${row("Condition",r.condition)}${row("Op. Status",r.opStatus)}${row("Location",r.equipLocation)}${row("Approved PR #",r.prNumber)}${row("Supplier",r.selectedSupplier||r.proposedSupplier)}${row("PO #",r.poNumber)}</div>
+      </div>
+      ${r.faultDescription?`<div class="sp-sec-title">Technical</div><div>${row("Fault",r.faultDescription)}${row("Findings",r.findings)}${row("Root Cause",r.rootCause)}${row("Repair Action",r.repairAction)}${row("Reason for Replacement",r.replaceReason)}${row("Estimated Downtime (h)",r.downtime)}${row("Spec Confirmed",r.specConfirmed)}${row("Technical Remarks",r.techRemarks)}</div>`:""}
+      <div class="sp-sec-title">Line Items — Est ${sp_usd(spReqEstTotal(r))} · Act ${sp_usd(spReqActTotal(r))}</div>
+      <div class="table-wrap" style="overflow-x:auto"><table><thead><tr><th>#</th><th>Part</th><th>Part No.</th><th>UoM</th><th class="n">Req</th><th class="n">Ord</th><th class="n">Rec</th><th class="n">Inst</th><th class="n">Est Total</th><th class="n">Act Total</th></tr></thead><tbody>${(r.lines||[]).map(line).join("")||'<tr><td colspan="10">No items</td></tr>'}</tbody></table></div>
+      <div class="sp-sec-title">Attachments</div>${files}
+    </div>
+    <div class="modal-foot">${spCanEdit()?`<button class="btn btn-ghost" onclick="closeModal();spOpenRequestForm('${id}')">Edit</button>`:""}${(r.procurementId&&DB.procurement.some(p=>p.id===r.procurementId))?`<button class="btn btn-ghost" onclick="closeModal();spGotoProcurement('${id}')">View Procurement</button>${(Array.isArray(r.poIds)&&r.poIds.length)?`<button class="btn btn-ghost" onclick="closeModal();spViewPO('${id}')">View PO</button>`:(spCanFinance()?`<button class="btn btn-ghost" onclick="closeModal();spCreatePOFromRequest('${id}')">Create PO</button>`:"")}`:(spCanFinance()?`<button class="btn btn-ghost" onclick="closeModal();spCreateProcurement('${id}')">Create Procurement</button>`:"")}<button class="btn btn-primary" onclick="closeModal()">Close</button></div>
+  `,{size:"wide"});
+}
+function spDeleteRequest(id){
+  if(!spCanDelete()){ toast("Permission denied","Only Super Admin can delete requests","err"); return; }
+  const r=DB.acSpareRequests.find(x=>x.id===id); if(!r) return;
+  const warn=r.procurementId?"<br><br><b>Note:</b> A connected procurement record exists and will NOT be deleted automatically.":"";
+  confirmModal("Delete spare-parts request?","This will remove "+esc(r.reqNo||"the request")+"."+warn,()=>{
+    DB.acSpareRequests=DB.acSpareRequests.filter(x=>x.id!==id);
+    // keep audit logs but mark
+    spAudit(id,"Deleted",r.status,"","Request deleted");
+    saveDB(); buildNav(); if(CURRENT==="maintenance") renderMaintenance(); toast("Request deleted","","ok");
+  },"Delete");
+}
+// attachments preview for spare requests
+async function spPreviewFile(id,i){
+  const r=DB.acSpareRequests.find(x=>x.id===id); if(!r||!r.files||!r.files[i]) return;
+  const f=r.files[i]; const data=await resolveFileData(f);
+  if(!data){ toast("File unavailable","Attachment data not found on this device","err"); return; }
+  spOpenFilePreview(f,data);
+}
+function spOpenFilePreview(f,data){
+  const isImg=/^image\//.test(f.type||"")||/\.(png|jpe?g|gif|webp)$/i.test(f.name||"");
+  const isPdf=/pdf/i.test(f.type||"")||/\.pdf$/i.test(f.name||"");
+  let body;
+  if(isImg) body=`<img src="${data}" style="max-width:100%;border-radius:8px">`;
+  else if(isPdf) body=`<iframe src="${data}" style="width:100%;height:70vh;border:0;border-radius:8px"></iframe>`;
+  else body=`<div class="empty"><p>Preview not available for this file type.</p><a class="btn btn-primary btn-sm" href="${data}" download="${esc(f.name)}">Download</a></div>`;
+  openModal(`<div class="modal-head"><h3>${esc(f.name)}</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div><div class="modal-body">${body}</div>`,{size:"wide"});
+}
+
+// ---- goto procurement (phase 4 wires creation; here just navigate if linked) ----
+function spGotoProcurement(id){
+  const r=DB.acSpareRequests.find(x=>x.id===id); if(!r) return;
+  if(r.procurementId && DB.procurement.some(p=>p.id===r.procurementId)){
+    _procFilter2={list:"",supplier:"",responsible:""};
+    navigate("procurement");
+    setTimeout(()=>{ if(typeof openRecordForm==="function"){} toast("Linked record","Procurement record "+(r.prNumber||"")+" is in the Procurement module","ok"); },100);
+  } else {
+    toast("Not linked yet","Procurement creation is added in the next phase","ok");
+  }
+}
+
+// ---- Excel + print (requests) ----
+function spExportRequestsExcel(){
+  if(typeof XLSX==="undefined"){ toast("Excel unavailable","","err"); return; }
+  const rows=spFilteredRequests().map(r=>({
+    RequestID:r.reqNo, Date:r.requestDate, Priority:r.priority, Campus:r.campus, AssetID:r.assetId, ACType:r.acType,
+    Fault:r.faultDescription, Parts:spReqPartsCount(r), EstCost:spReqEstTotal(r), ActCost:spReqActTotal(r),
+    ApprovedPR:r.prNumber||"", Supplier:r.selectedSupplier||r.proposedSupplier||"", PONumber:r.poNumber||"",
+    ExpectedDelivery:r.expectedDelivery||"", Status:r.status, Responsible:r.responsible||""
+  }));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{RequestID:""}]),"Spare Requests");
+  // line-item detail sheet
+  const lines=[];
+  spFilteredRequests().forEach(r=>(r.lines||[]).forEach(li=>lines.push({RequestID:r.reqNo,Part:li.partName,PartNo:li.partNumber,UoM:li.uom,QtyReq:li.qtyRequested,QtyOrd:li.qtyOrdered,QtyRec:li.qtyReceived,QtyInst:li.qtyInstalled,EstUnit:li.estUnitPrice,ActUnit:li.actUnitPrice,EstTotal:spLineEstTotal(li),ActTotal:spLineActTotal(li),Supplier:li.selectedSupplier||li.proposedSupplier||""})));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(lines.length?lines:[{RequestID:""}]),"Line Items");
+  XLSX.writeFile(wb,"spare-parts-requests-"+new Date().toISOString().slice(0,10)+".xlsx");
+  toast("Excel exported","","ok");
+}
+function spPrintRequests(){
+  const rows=spFilteredRequests();
+  const body=`<table><thead><tr><th>Request ID</th><th>Date</th><th>Priority</th><th>Campus</th><th>Asset</th><th>AC Type</th><th>Parts</th><th>Est</th><th>Act</th><th>PR#</th><th>Supplier</th><th>PO#</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.reqNo||"")}</td><td>${fmtDateUS(r.requestDate)}</td><td>${esc(r.priority||"")}</td><td>${esc(r.campus||"")}</td><td>${esc(r.assetId||"")}</td><td>${esc(r.acType||"")}</td><td class="n">${spReqPartsCount(r)}</td><td class="n">${sp_usd(spReqEstTotal(r))}</td><td class="n">${sp_usd(spReqActTotal(r))}</td><td>${esc(r.prNumber||"")}</td><td>${esc(r.selectedSupplier||r.proposedSupplier||"")}</td><td>${esc(r.poNumber||"")}</td><td>${esc(r.status||"")}</td></tr>`).join("")||'<tr><td colspan="13">No requests</td></tr>'}</tbody></table>`;
+  acReportWindow("Spare Parts Requests",body);
+}
+function spPrintOne(id){
+  const r=DB.acSpareRequests.find(x=>x.id===id); if(!r) return;
+  const lines=(r.lines||[]).map((li,i)=>`<tr><td>${i+1}</td><td>${esc(li.partName)}</td><td>${esc(li.partNumber||"")}</td><td>${esc(li.uom)}</td><td class="n">${li.qtyRequested||0}</td><td class="n">${sp_usd(li.estUnitPrice)}</td><td class="n">${sp_usd(spLineEstTotal(li))}</td></tr>`).join("");
+  const body=`<h2 style="margin:0 0 4px">Spare Parts Request — ${esc(r.reqNo||"")}</h2>
+    <p style="margin:0 0 10px;color:#555">${esc(r.campus||"")} · ${fmtDateUS(r.requestDate)} · Priority: ${esc(r.priority||"")} · Status: ${esc(r.status||"")}</p>
+    <table><tbody>
+      <tr><td><b>Asset</b></td><td>${esc(r.assetId||"")}</td><td><b>AC Type</b></td><td>${esc(r.acType||"")}</td></tr>
+      <tr><td><b>Brand/Model</b></td><td>${esc([r.brand,r.model].filter(Boolean).join(" "))}</td><td><b>Approved PR#</b></td><td>${esc(r.prNumber||"")}</td></tr>
+      <tr><td><b>Fault</b></td><td colspan="3">${esc(r.faultDescription||"")}</td></tr>
+    </tbody></table>
+    <h3 style="margin:14px 0 6px">Line Items</h3>
+    <table><thead><tr><th>#</th><th>Part</th><th>Part No.</th><th>UoM</th><th>Qty</th><th>Est Unit</th><th>Est Total</th></tr></thead><tbody>${lines||'<tr><td colspan="7">No items</td></tr>'}</tbody></table>
+    <p style="text-align:right;margin-top:8px"><b>Estimated Total: ${sp_usd(spReqEstTotal(r))}</b></p>`;
+  acReportWindow("Spare Parts Request "+(r.reqNo||""),body);
+}
+
+/* ============================================================
+   SPARE PARTS — PHASE 3: source integration
+   "Request Spare Parts" from PM / CM / EM / Split / VRF records
+   + "Create Spare Parts Request" recommendation on failed checklist
+============================================================ */
+
+// Map a maintenance-category string to the short PM/CM/EM code
+function spMaintCatCode(category){
+  if(!category) return "";
+  if(/PM|Preventive/i.test(category)) return "PM";
+  if(/CM|Corrective/i.test(category)) return "CM";
+  if(/EM|Emergency/i.test(category)) return "EM";
+  return "";
+}
+// Resolve equipment fields from a unit id into a prefill fragment
+function spUnitPrefill(unitId){
+  const u=spFindUnit(unitId); if(!u) return {};
+  const frag={
+    assetUnitId:u.id, assetId:u.assetId||u.systemId||"",
+    brand:u.brand||"", model:u.model||"", serial:u.serial||"", capacity:u.capacity||"",
+    condition:u.condition||"", opStatus:u.opStatus||"", campus:u.campus||"",
+    building:u.building||"", floor:u.floor||"", room:u.location||"",
+    equipLocation:[u.building,u.floor,u.location].filter(Boolean).join(" / ")
+  };
+  if(u.kind==="vrf-out"){ frag.acType="VRF"; frag.vrfSystemId=u.systemId||""; frag.inout="Outdoor"; }
+  else if(u.kind==="vrf-in"){ frag.acType="VRF"; frag.inout="Indoor"; const p=DB.acUnits.find(x=>x.id===u.parentId); if(p){ frag.vrfSystemId=p.systemId||""; frag.parentOutdoor=p.systemId||p.assetId||""; } }
+  else { frag.acType="Single Split"; }
+  return frag;
+}
+// Try to find a unit by its visible assetId text (fallback when record has no unitId)
+function spUnitByAssetId(assetId){
+  if(!assetId) return null;
+  const a=String(assetId).trim().toLowerCase();
+  return DB.acUnits.find(u=>String(u.assetId||"").trim().toLowerCase()===a || String(u.systemId||"").trim().toLowerCase()===a)||null;
+}
+
+// ---- Build prefill from each source type ----
+function spPrefillFromPMEM(rec){
+  let pf={};
+  if(rec.unitId) pf=spUnitPrefill(rec.unitId);
+  else { const u=spUnitByAssetId(rec.assetId); if(u) pf=spUnitPrefill(u.id); }
+  pf.acType=pf.acType||rec.acType||"";
+  pf.assetId=pf.assetId||rec.assetId||"";
+  pf.campus=pf.campus||rec.campus||"";
+  pf.room=pf.room||rec.location||"";
+  pf.equipLocation=pf.equipLocation||rec.location||"";
+  pf.maintCategory=spMaintCatCode(rec.category);
+  pf.linkedMaint=rec.recId||"";
+  pf.technician=rec.technician||"";
+  pf.responsible=rec.technician||"";
+  pf.faultDescription=rec.findings||"";
+  pf.findings=rec.findings||"";
+  pf.repairAction=rec.action||"";
+  pf.techRemarks=rec.remarks||"";
+  pf.priority=(spMaintCatCode(rec.category)==="EM")?"Critical":"Medium";
+  pf.requestDate=new Date().toISOString().slice(0,10);
+  pf.sourceType=spMaintCatCode(rec.category)||"PM";
+  pf.sourceId=rec.id;
+  return pf;
+}
+function spPrefillFromCM(c){
+  let pf={};
+  const u=spUnitByAssetId(c.assetId); if(u) pf=spUnitPrefill(u.id);
+  pf.acType=pf.acType||"";
+  pf.assetId=pf.assetId||c.assetId||"";
+  pf.maintCategory="CM";
+  pf.linkedCM=c.cmId||"";
+  pf.priority=c.priority||"High";
+  pf.technician=c.technician||"";
+  pf.responsible=c.technician||"";
+  pf.faultDescription=c.fault||"";
+  pf.rootCause=c.rootCause||"";
+  pf.repairAction=c.repairAction||"";
+  pf.downtime=c.downtime||"";
+  pf.requestDate=new Date().toISOString().slice(0,10);
+  pf.sourceType="CM";
+  pf.sourceId=c.id;
+  return pf;
+}
+function spPrefillFromUnit(unitId){
+  const pf=spUnitPrefill(unitId);
+  pf.requestDate=new Date().toISOString().slice(0,10);
+  pf.priority="Medium";
+  pf.sourceType="Unit";
+  pf.sourceId=unitId;
+  return pf;
+}
+
+// ---- Launchers (set prefill, close any open modal, open request form) ----
+function spRequestFromPMEM(recId){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const rec=DB.acRecords.find(x=>x.id===recId); if(!rec){ toast("Record not found","","err"); return; }
+  _spPrefill=spPrefillFromPMEM(rec);
+  closeModal();
+  spOpenRequestForm();
+}
+function spRequestFromCM(cmId){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const c=DB.acCorrective.find(x=>x.id===cmId); if(!c){ toast("Record not found","","err"); return; }
+  _spPrefill=spPrefillFromCM(c);
+  closeModal();
+  spOpenRequestForm();
+}
+function spRequestFromUnit(unitId){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const u=spFindUnit(unitId); if(!u){ toast("Unit not found","","err"); return; }
+  _spPrefill=spPrefillFromUnit(unitId);
+  closeModal();
+  spOpenRequestForm();
+}
+
+// ---- Small reusable button (for record forms / rows) ----
+function spRequestBtn(onclick,small){
+  return `<button class="btn ${small?'btn-sm ':''}btn-ghost" style="color:var(--primary)" onclick="${onclick}" title="Create a spare-parts request pre-filled from this record"><svg width="${small?13:15}" height="${small?13:15}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:3px"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Request Spare Parts</button>`;
+}
+
+// ---- Failed-checklist recommendation (NON-automatic; user reviews) ----
+// Scans the checklist selects currently in the open PM/EM form and, if any are "Fail",
+// shows a recommendation banner with a button to create a request. Does NOT auto-create.
+function spCheckChecklistRecommendation(checklistLen){
+  const host=document.getElementById("spChecklistRec"); if(!host) return;
+  let fails=[];
+  for(let i=0;i<checklistLen;i++){
+    const selEl=document.getElementById("acc_"+i);
+    const labelEl=selEl&&selEl.closest(".ac-check-row")?.querySelector(".ac-check-label");
+    if(selEl && selEl.value==="Fail"){ fails.push((labelEl?labelEl.textContent:("Item "+(i+1)))); }
+  }
+  if(!fails.length){ host.innerHTML=""; return; }
+  host.innerHTML=`<div class="sp-rec-banner">
+    <div style="display:flex;align-items:flex-start;gap:9px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:12.5px;color:#b45309">${fails.length} checklist item(s) failed — a spare-parts request may be needed</div>
+        <div class="muted" style="font-size:11.5px;margin-top:2px">${fails.slice(0,3).map(esc).join("; ")}${fails.length>3?` …+${fails.length-3} more`:""}</div>
+      </div>
+      <button class="btn btn-sm btn-primary" style="flex-shrink:0" onclick="spRequestFromChecklist()">Create Spare Parts Request</button>
+    </div>
+  </div>`;
+}
+// Build a request from the CURRENTLY OPEN PM/EM form (reads live field values + failed items)
+function spRequestFromChecklist(){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const g=n=>{ const el=document.getElementById("acr_"+n); return el?el.value:""; };
+  const unitId=g("unitId");
+  let pf = unitId ? spUnitPrefill(unitId) : {};
+  const assetId=g("assetId");
+  if(!unitId){ const u=spUnitByAssetId(assetId); if(u) pf=spUnitPrefill(u.id); }
+  pf.acType=pf.acType||g("acType");
+  pf.assetId=pf.assetId||assetId;
+  pf.campus=pf.campus||g("campus");
+  pf.room=pf.room||g("location");
+  pf.equipLocation=pf.equipLocation||g("location");
+  pf.maintCategory=spMaintCatCode(g("category"));
+  pf.linkedMaint=g("recId");
+  pf.technician=g("technician");
+  pf.responsible=g("technician");
+  pf.priority=(spMaintCatCode(g("category"))==="EM")?"Critical":"High";
+  pf.requestDate=new Date().toISOString().slice(0,10);
+  // collect failed checklist item labels into the fault/findings text
+  const fails=[];
+  document.querySelectorAll(".ac-check-row").forEach(row=>{
+    const sel=row.querySelector(".ac-check-sel"); const lbl=row.querySelector(".ac-check-label");
+    if(sel && sel.value==="Fail" && lbl) fails.push(lbl.textContent.replace(/^\d+\.\s*/,""));
+  });
+  if(fails.length){
+    pf.findings=("Failed checklist items: "+fails.join("; ")).slice(0,500);
+    pf.faultDescription=pf.faultDescription||("Checklist failure — "+fails[0]);
+  }
+  pf.sourceType=spMaintCatCode(g("category"))||"PM";
+  _spPrefill=pf;
+  closeModal();
+  spOpenRequestForm();
+}
+
+/* ============================================================
+   SPARE PARTS — PHASE 4: procurement + PO integration
+   - Create ONE linked procurement record (dup-guarded)
+   - Auto-create "AC Spare Parts & Maintenance" category
+   - Reuse existing PO creation flow; link PO back
+   - Cost-control field mapping
+============================================================ */
+
+// Map spare-parts status -> closest existing procurement status
+function spToProcStatus(spStatus){
+  const map={
+    "Spare Parts Needed":"To Do","Technical Specification Pending":"To Do","Specification Confirmed":"To Do",
+    "Pending Approved PR":"Pending Approval","Approved PR Received":"Approved",
+    "Requesting Quotation":"Requesting Quotation","Quotation Received":"Quotation Received",
+    "Pending Supplier Selection":"Quotation Received","Supplier Approved":"Approved",
+    "Purchase Order Created":"Ordered","Ordered":"Ordered","Partially Delivered":"Partially Delivered",
+    "Delivered":"Delivered","Waiting for Installation":"Delivered","Installation Scheduled":"Delivered",
+    "Installed":"Completed","Testing":"Completed","Completed":"Completed","Closed":"Completed",
+    "On Hold":"On Hold","Cancelled":"Cancelled"
+  };
+  return map[spStatus]||"To Do";
+}
+
+// Find or create the AC Spare Parts procurement category (list). Never renames/removes existing lists.
+function spEnsureProcCategory(){
+  const norm=s=>String(s||"").trim().toLowerCase();
+  let list=DB.procurementLists.find(l=>norm(l.name)===norm(SP_PROC_CATEGORY));
+  if(!list){
+    list={id:uid(),name:SP_PROC_CATEGORY,campus:"",archived:false,order:DB.procurementLists.length,created:Date.now()};
+    DB.procurementLists.push(list);
+  } else if(list.archived){ list.archived=false; }
+  return list;
+}
+
+// Build the procurement record object from a spare-parts request (cost-control aware)
+function spBuildProcObject(r,listId){
+  // budget line items from spare lines: use approved qty if set else requested; est unit price (or actual if present)
+  const items=(r.lines||[]).map(li=>{
+    const qty=(Number(li.qtyApproved)||0)>0?Number(li.qtyApproved):(Number(li.qtyRequested)||0);
+    const price=(Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0);
+    return {desc:(li.partName||"Spare part")+(li.partNumber?(" ("+li.partNumber+")"):""),qty,price};
+  });
+  const budget=items.reduce((a,it)=>a+(it.qty*it.price),0);
+  const remarks=[
+    "Spare Parts Request: "+(r.reqNo||""),
+    r.assetId?("AC Asset: "+r.assetId):"",
+    r.faultDescription?("Fault: "+r.faultDescription):"",
+    (r.linkedMaint||r.linkedCM)?("Maint Record: "+[r.linkedMaint,r.linkedCM].filter(Boolean).join(" / ")):""
+  ].filter(Boolean).join(" | ");
+  return {
+    id:uid(),
+    name:"AC Spare Parts – "+(r.assetId||"Unknown")+" – "+(r.campus||""),
+    campus:r.campus||"",
+    category:"HVAC / AC Maintenance",
+    listId:listId,
+    pr:r.prNumber||"",
+    quote:"",
+    po:r.poNumber||"",
+    supplier:r.selectedSupplier||r.proposedSupplier||"",
+    budget:budget,
+    status:spToProcStatus(r.status),
+    due:r.requiredDate||"",
+    responsible:r.responsible||"",
+    items:items,
+    remarks:remarks,
+    files:r.files?JSON.parse(JSON.stringify(r.files)):[],
+    comments:[],
+    history:[{by:spUser(),at:Date.now(),action:"Created from spare-parts request "+(r.reqNo||"")}],
+    created:Date.now(), updated:Date.now(),
+    fromSpareRequest:r.id
+  };
+}
+
+// Create the linked procurement record (guarded: once only, PR required)
+function spCreateProcurement(reqId){
+  if(!spCanFinance()){ toast("Permission denied","You cannot create procurement records","err"); return; }
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r){ toast("Request not found","","err"); return; }
+  if(r.procurementId && DB.procurement.some(p=>p.id===r.procurementId)){
+    toast("Already created","A procurement record already exists for this request","err"); return;
+  }
+  // PR number must be entered before creating the connected procurement record
+  if(!r.prNumber || !String(r.prNumber).trim()){
+    spPromptPRNumber(reqId, ()=>spCreateProcurement(reqId));
+    return;
+  }
+  const list=spEnsureProcCategory();
+  const obj=spBuildProcObject(r,list.id);
+  DB.procurement.unshift(obj);
+  r.procurementId=obj.id;
+  r.updated=spNow();
+  if(r.status==="Spare Parts Needed"||r.status==="Specification Confirmed"||r.status==="Approved PR Received") r.status="Requesting Quotation";
+  spAudit(r.id,"Procurement record created","",r.status,"Linked procurement "+(obj.pr||obj.name));
+  if(typeof poRememberItems==="function") poRememberItems(obj.items);
+  saveDB(); buildNav();
+  if(CURRENT==="maintenance") renderMaintenance();
+  toast("Procurement record created","Added to “"+SP_PROC_CATEGORY+"” · "+sp_usd(obj.budget),"ok");
+}
+
+// PR-number prompt modal (used when PR missing)
+function spPromptPRNumber(reqId,onDone){
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r) return;
+  openModal(`<div class="modal-head"><h3>Approved PR Number Required</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+  <div class="modal-body">
+    <p class="muted" style="font-size:13px;margin:0 0 12px">Purchasing begins after the Purchasing Request (PR) has been approved. Enter the approved PR number to create the connected procurement record.</p>
+    <div class="form-grid">
+      <div class="field"><label class="req">Approved PR Number</label><input id="sp_pr_input" value="${esc(r.prNumber||'')}" placeholder="e.g. PR-2026-0123"></div>
+      <div class="field"><label>PR Approval Date</label><input type="date" id="sp_prdate_input" value="${esc(r.prApprovalDate||'')}"></div>
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="spSavePRNumber('${reqId}')">Save &amp; Continue</button></div>`);
+  window.__spAfterPR=onDone||null;
+}
+function spSavePRNumber(reqId){
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r) return;
+  const pr=(document.getElementById("sp_pr_input").value||"").trim();
+  if(!pr){ toast("PR number required","","err"); return; }
+  r.prNumber=pr; r.prApprovalDate=(document.getElementById("sp_prdate_input").value||""); r.updated=spNow();
+  if(r.status==="Pending Approved PR"||r.status==="Spare Parts Needed") r.status="Approved PR Received";
+  spAudit(r.id,"PR number set","","",pr);
+  saveDB();
+  closeModal();
+  const cb=window.__spAfterPR; window.__spAfterPR=null;
+  if(typeof cb==="function") setTimeout(cb,30);
+  else { if(CURRENT==="maintenance") renderMaintenance(); toast("PR number saved","","ok"); }
+}
+
+// Navigate to the linked procurement record (open its editor)
+function spGotoProcurement(reqId){
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r) return;
+  if(r.procurementId && DB.procurement.some(p=>p.id===r.procurementId)){
+    const rec=DB.procurement.find(p=>p.id===r.procurementId);
+    _procListId=rec.listId||"all";
+    navigate("procurement");
+    setTimeout(()=>{ if(typeof openRecordForm==="function") openRecordForm("procurement",rec.id); },120);
+  } else {
+    toast("Not linked","No procurement record yet — use “Create Procurement Record”","err");
+  }
+}
+function spEditProcurement(reqId){ spGotoProcurement(reqId); }
+
+// Create a PO from the linked procurement record (reuse existing PO flow)
+function spCreatePOFromRequest(reqId){
+  if(!spCanFinance()){ toast("Permission denied","","err"); return; }
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r){ toast("Request not found","","err"); return; }
+  if(!r.procurementId || !DB.procurement.some(p=>p.id===r.procurementId)){
+    toast("Create procurement first","A connected procurement record is required before a PO","err"); return;
+  }
+  // Warn (not block) if a PO already linked, unless multi-supplier
+  if(Array.isArray(r.poIds) && r.poIds.length){
+    confirmModal("PO already linked","This request already has a linked purchase order ("+esc(r.poNumber||"")+"). Create another PO anyway (e.g. for a different supplier)?",()=>spDoCreatePO(reqId),"Create another PO",false);
+    return;
+  }
+  spDoCreatePO(reqId);
+}
+function spDoCreatePO(reqId){
+  const r=DB.acSpareRequests.find(x=>x.id===reqId);
+  const rec=DB.procurement.find(p=>p.id===r.procurementId);
+  if(!rec){ toast("Procurement record missing","","err"); return; }
+  // mark so that after the PO is saved we can capture its id/number back onto the spare request
+  window.__spPOForRequest=reqId;
+  // Reuse the existing createPOFromRecord flow (draft prefilled from the procurement record)
+  createPOFromRecord(rec.id);
+}
+// Called after a PO save to link it back to the spare request (hooked into doSavePO)
+function spLinkPOToRequest(poObj){
+  const reqId=window.__spPOForRequest; window.__spPOForRequest=null;
+  if(!reqId) return;
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r) return;
+  r.poIds=r.poIds||[];
+  if(!r.poIds.includes(poObj.id)) r.poIds.push(poObj.id);
+  r.poNumber=poObj.poNo||r.poNumber||"";
+  // sync supplier + order info
+  if(poObj.supplier && !r.selectedSupplier) r.selectedSupplier=poObj.supplier;
+  if(poObj.orderDate) r.orderDate=poObj.orderDate;
+  if(poObj.delivery) r.expectedDelivery=poObj.delivery;
+  if(["Spare Parts Needed","Requesting Quotation","Quotation Received","Pending Supplier Selection","Supplier Approved","Approved PR Received"].includes(r.status)) r.status="Purchase Order Created";
+  spAudit(r.id,"Purchase Order linked","",r.status,poObj.poNo||"");
+  saveDB();
+  if(CURRENT==="maintenance" && document.getElementById("maintBody")) setTimeout(()=>{ try{ renderMaintenance(); }catch(e){} },10);
+}
+// View a linked PO
+function spViewPO(reqId){
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r||!r.poIds||!r.poIds.length){ toast("No PO linked","","err"); return; }
+  const poId=r.poIds[r.poIds.length-1];
+  const po=DB.po.find(p=>p.id===poId);
+  if(!po){ toast("PO not found","It may have been deleted","err"); return; }
+  navigate("purchaseorder");
+  setTimeout(()=>{ if(typeof openPODetail==="function") openPODetail(po.id); else if(typeof viewPO==="function") viewPO(po.id); },120);
+}
+
+// ---- Rebuilt Purchasing Tracker tab ----
+function spPaintPurchasing(host){
+  const rows=DB.acSpareRequests.filter(r=>!["Cancelled"].includes(r.status));
+  const canFin=spCanFinance();
+  host.innerHTML=`
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px">
+      <div style="font-size:15px;font-weight:800">Purchasing Tracker <span class="muted" style="font-size:12.5px;font-weight:600">${rows.length} request(s)</span></div>
+      <div class="grow"></div>
+      <button class="btn btn-ghost btn-sm" onclick="spGotoSpareCategory()">Open “${esc(SP_PROC_CATEGORY)}” list</button>
+    </div>
+    <div class="table-wrap" style="overflow-x:auto"><table class="sp-table"><thead><tr>
+      <th style="position:sticky;left:0;background:var(--surface)">Request ID</th><th>Asset</th><th>Campus</th><th>Status</th>
+      <th>Approved PR</th><th>PR Date</th><th>Supplier</th><th>PO Number</th><th style="text-align:right">Est Cost</th><th style="text-align:right">Ordered Cost</th>
+      <th>Procurement</th><th style="min-width:230px">Purchasing Actions</th>
+    </tr></thead><tbody>${rows.length?rows.map(r=>{
+      const hasProc=r.procurementId&&DB.procurement.some(p=>p.id===r.procurementId);
+      const hasPO=Array.isArray(r.poIds)&&r.poIds.length;
+      const ordered=spReqActTotal(r);
+      let actions="";
+      if(!hasProc){
+        actions=canFin?`<button class="btn btn-sm btn-primary" onclick="spCreateProcurement('${r.id}')">Create Procurement Record</button>`:'<span class="muted">—</span>';
+      } else {
+        actions=`<div style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-ghost" onclick="spGotoProcurement('${r.id}')">View Procurement</button>
+          ${canFin?`<button class="btn btn-sm btn-ghost" onclick="spEditProcurement('${r.id}')">Edit</button>`:""}
+          ${hasPO?`<button class="btn btn-sm btn-ghost" onclick="spViewPO('${r.id}')">View PO${r.poIds.length>1?` (${r.poIds.length})`:""}</button>`:(canFin?`<button class="btn btn-sm btn-primary" onclick="spCreatePOFromRequest('${r.id}')">Create Purchase Order</button>`:"")}
+        </div>`;
+      }
+      return `<tr>
+        <td style="position:sticky;left:0;background:var(--surface)"><b>${esc(r.reqNo||"")}</b></td>
+        <td>${esc(r.assetId||"—")}</td>
+        <td>${r.campus?`<span class="campus-tag ${campusTagClass(r.campus)}">${esc(r.campus)}</span>`:"—"}</td>
+        <td>${spStatusBadge(r.status)}</td>
+        <td>${r.prNumber?esc(r.prNumber):(canFin?`<button class="btn btn-sm btn-ghost" onclick="spPromptPRNumber('${r.id}')">+ PR #</button>`:"—")}</td>
+        <td>${fmtDateUS(r.prApprovalDate)}</td>
+        <td>${esc(r.selectedSupplier||r.proposedSupplier||"—")}</td>
+        <td>${esc(r.poNumber||"—")}</td>
+        <td style="text-align:right">${sp_usd(spReqEstTotal(r))}</td>
+        <td style="text-align:right">${ordered>0?sp_usd(ordered):'<span class="muted">—</span>'}</td>
+        <td>${hasProc?'<span class="campus-tag" style="background:#05966922;color:#059669">Linked</span>':'<span class="muted">Not created</span>'}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join(""):`<tr><td colspan="12"><div class="empty" style="padding:24px"><h4>No requests to purchase</h4><p>Create a spare-parts request first.</p></div></td></tr>`}</tbody></table></div>
+    <div class="muted" style="font-size:11.5px;margin-top:8px">Cost control: <b>Estimated</b> comes from the request; <b>Ordered</b> from ordered qty × actual price; dashboard totals count each cost once. Quotation/estimate values are not treated as actual expense until ordered or received.</div>`;
+}
+function spGotoSpareCategory(){
+  const list=DB.procurementLists.find(l=>String(l.name||"").trim().toLowerCase()===SP_PROC_CATEGORY.toLowerCase());
+  if(!list){ toast("Category not created yet","It is created automatically with the first procurement record","ok"); return; }
+  _procListId=list.id; navigate("procurement");
+}
+
+/* ============================================================
+   SPARE PARTS — PHASE 5: delivery/receiving + replacement/installation
+   - Receiving with cumulative history (acSpareReceipts)
+   - Installation/replacement records (acReplacementRecords)
+   - Auto status: Partially Delivered / Delivered / Waiting for Installation
+   - Equipment + maintenance updates on successful install
+   - Closure guards
+============================================================ */
+const SP_TEST_RESULTS=["Pass","Fail","Further Action Required"];
+const SP_PART_CONDITIONS=["New / Good","Damaged","Wrong Item","Incomplete"];
+
+// ---- receiving totals (from cumulative receipts) ----
+function spReceivedForLine(reqId,lineId){
+  return DB.acSpareReceipts.filter(x=>x.reqId===reqId).reduce((s,rc)=>{
+    const li=(rc.lines||[]).find(l=>l.lineId===lineId);
+    return s+(li?(Number(li.currentReceived)||0):0);
+  },0);
+}
+function spAcceptedForLine(reqId,lineId){
+  return DB.acSpareReceipts.filter(x=>x.reqId===reqId).reduce((s,rc)=>{
+    const li=(rc.lines||[]).find(l=>l.lineId===lineId);
+    return s+(li?(Number(li.accepted)||0):0);
+  },0);
+}
+function spInstalledForLine(reqId,lineId){
+  return DB.acReplacementRecords.filter(x=>x.reqId===reqId).reduce((s,rr)=>{
+    const li=(rr.lines||[]).find(l=>l.lineId===lineId);
+    return s+(li?(Number(li.qtyInstalled)||0):0);
+  },0);
+}
+// Recompute per-line received/installed onto the request lines from cumulative history, then set status
+function spRecomputeRequest(r){
+  let allReceived=true, anyReceived=false, allInstalled=true, anyAccepted=false;
+  (r.lines||[]).forEach(li=>{
+    const ordered=(Number(li.qtyOrdered)||0)>0?Number(li.qtyOrdered):(Number(li.qtyApproved)||Number(li.qtyRequested)||0);
+    const rec=spReceivedForLine(r.id,li.id);
+    const acc=spAcceptedForLine(r.id,li.id);
+    const ins=spInstalledForLine(r.id,li.id);
+    li.qtyReceived=rec; li.qtyInstalled=ins;
+    if(acc>0) anyAccepted=true;
+    if(rec>0) anyReceived=true;
+    if(ordered>0 && rec<ordered) allReceived=false;
+    if(ordered<=0) allReceived=false;
+    if(acc>0 && ins<acc) allInstalled=false;
+    if(acc<=0) allInstalled=false;
+  });
+  // don't override terminal states
+  if(["Completed","Closed","Cancelled","On Hold"].includes(r.status)) return;
+  if(DB.acReplacementRecords.some(x=>x.reqId===r.id) && allInstalled && anyAccepted){
+    // installation stage handled by installer; leave as-is unless clearly done
+  }
+  if(anyReceived && !allReceived) r.status="Partially Delivered";
+  else if(allReceived && anyReceived){
+    // all approved items received
+    if(anyAccepted) r.status="Waiting for Installation"; else r.status="Delivered";
+  }
+}
+
+// ---- outstanding for a line (ordered - cumulative received) ----
+function spOutstandingForLine(r,li){
+  const ordered=(Number(li.qtyOrdered)||0)>0?Number(li.qtyOrdered):(Number(li.qtyApproved)||Number(li.qtyRequested)||0);
+  return Math.max(0, ordered - spReceivedForLine(r.id,li.id));
+}
+
+// ============================================================
+//  RECEIVING
+// ============================================================
+let _spReceiveLines=[]; let _spReceiveReqId=null;
+function spOpenReceiveForm(reqId){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r){ toast("Request not found","","err"); return; }
+  if(!(r.lines||[]).length){ toast("No line items","Add spare parts to the request first","err"); return; }
+  _spReceiveReqId=reqId;
+  _stagedFiles=[];
+  _spReceiveLines=(r.lines||[]).map(li=>({
+    lineId:li.id, partName:li.partName, partNumber:li.partNumber, uom:li.uom,
+    ordered:(Number(li.qtyOrdered)||0)>0?Number(li.qtyOrdered):(Number(li.qtyApproved)||Number(li.qtyRequested)||0),
+    prevReceived:spReceivedForLine(reqId,li.id),
+    currentReceived:0, accepted:0, rejected:0, rejectReason:"", condition:"New / Good", serialBatch:"", warranty:li.warrantyPeriod||""
+  }));
+  const today=new Date().toISOString().slice(0,10);
+  const supplier=r.selectedSupplier||r.proposedSupplier||"";
+  openModal(`
+    <div class="modal-head"><h3>Record Delivery — ${esc(r.reqNo||"")}</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="field"><label class="req">Receiving Date</label><input type="date" id="spr_date" value="${today}"></div>
+        <div class="field"><label>PO Number</label><input id="spr_po" value="${esc(r.poNumber||'')}"></div>
+        <div class="field"><label>Supplier</label><input id="spr_supplier" value="${esc(supplier)}"></div>
+        <div class="field"><label>Delivery Note Number</label><input id="spr_dn" value=""></div>
+        <div class="field"><label>Invoice Number</label><input id="spr_inv" value=""></div>
+        <div class="field"><label>Received By</label><input id="spr_by" value="${esc(spUser())}"></div>
+        <div class="field"><label>Storage Location</label><input id="spr_store" value=""></div>
+      </div>
+      <div class="sp-sec-title">Items Received</div>
+      <div class="table-wrap" style="overflow-x:auto"><table class="sp-table"><thead><tr>
+        <th>Part</th><th class="n">Ordered</th><th class="n">Prev. Recv</th><th class="n">Outstanding</th><th class="n">Now Received</th><th class="n">Accepted</th><th class="n">Rejected</th><th>Reject Reason</th><th>Condition</th><th>Serial/Batch</th>
+      </tr></thead><tbody>${_spReceiveLines.map((li,i)=>{
+        const outstanding=Math.max(0,li.ordered-li.prevReceived);
+        return `<tr>
+          <td><b>${esc(li.partName)}</b>${li.partNumber?`<div class="muted" style="font-size:11px">${esc(li.partNumber)}</div>`:""}</td>
+          <td class="n">${li.ordered}</td>
+          <td class="n">${li.prevReceived}</td>
+          <td class="n" id="spr_out_${i}">${outstanding}</td>
+          <td class="n"><input type="number" min="0" step="1" value="0" style="width:70px" oninput="spReceiveInput(${i},'currentReceived',this.value)"></td>
+          <td class="n"><input type="number" min="0" step="1" value="0" style="width:70px" oninput="spReceiveInput(${i},'accepted',this.value)"></td>
+          <td class="n"><input type="number" min="0" step="1" value="0" style="width:70px" oninput="spReceiveInput(${i},'rejected',this.value)"></td>
+          <td><input value="" placeholder="if rejected" style="width:120px" oninput="spReceiveInput(${i},'rejectReason',this.value)"></td>
+          <td><select onchange="spReceiveInput(${i},'condition',this.value)">${SP_PART_CONDITIONS.map(c=>`<option ${li.condition===c?'selected':''}>${c}</option>`).join("")}</select></td>
+          <td><input value="" style="width:110px" oninput="spReceiveInput(${i},'serialBatch',this.value)"></td>
+        </tr>`;
+      }).join("")}</tbody></table></div>
+      <div class="sp-sec-title">Delivery Attachments</div>
+      <label class="file-drop"><input type="file" multiple accept="${FILE_TYPES}" onchange="handleFileInput(this)"><span>Delivery notes, invoices, photos of received parts…</span></label>
+      <div id="fileList" class="file-list"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="spSaveReceipt()">Save Delivery</button></div>
+  `,{size:"wide"});
+  renderStagedFiles();
+}
+function spReceiveInput(i,field,val){
+  const isNum=["currentReceived","accepted","rejected"].includes(field);
+  _spReceiveLines[i][field]= isNum ? Math.max(0,Number(val)||0) : val;
+  if(field==="currentReceived"){
+    // default accepted to received if user hasn't touched it
+    // (kept simple: leave accepted to user)
+  }
+}
+function spSaveReceipt(){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const r=DB.acSpareRequests.find(x=>x.id===_spReceiveReqId); if(!r) return;
+  const g=id=>{ const el=document.getElementById(id); return el?el.value:""; };
+  const date=g("spr_date"); if(!date){ toast("Receiving date required","","err"); return; }
+  // validate: current received <= outstanding (unless authorized), accepted+rejected <= received
+  const authorized=spCanException();
+  const recvLines=[];
+  let anyQty=false;
+  for(let i=0;i<_spReceiveLines.length;i++){
+    const li=_spReceiveLines[i];
+    const cur=Number(li.currentReceived)||0, acc=Number(li.accepted)||0, rej=Number(li.rejected)||0;
+    const outstanding=Math.max(0,li.ordered-li.prevReceived);
+    if(cur<0||acc<0||rej<0){ toast("No negative quantities","","err"); return; }
+    if(cur>outstanding && !authorized){ toast("Received exceeds outstanding","Part \""+li.partName+"\": "+cur+" received but only "+outstanding+" outstanding. Only an authorized user can accept an over-delivery.","err"); return; }
+    if((acc+rej)>cur){ toast("Accepted + rejected exceeds received","Part \""+li.partName+"\": accepted+rejected cannot exceed received.","err"); return; }
+    if(cur>0){ anyQty=true; }
+    recvLines.push({lineId:li.lineId,partName:li.partName,partNumber:li.partNumber,uom:li.uom,ordered:li.ordered,prevReceived:li.prevReceived,currentReceived:cur,cumulative:li.prevReceived+cur,outstanding:Math.max(0,outstanding-cur),accepted:acc,rejected:rej,rejectReason:li.rejectReason,condition:li.condition,serialBatch:li.serialBatch,warranty:li.warranty});
+  }
+  if(!anyQty){ toast("Nothing received","Enter a received quantity for at least one part","err"); return; }
+  persistStagedFiles(_stagedFiles).then(fileRefs=>{
+    const receipt={
+      id:uid(), reqId:r.id, reqNo:r.reqNo, receivingDate:date, poNumber:g("spr_po"), supplier:g("spr_supplier"),
+      deliveryNote:g("spr_dn"), invoiceNumber:g("spr_inv"), receivedBy:g("spr_by"), storageLocation:g("spr_store"),
+      lines:recvLines, files:fileRefs, created:spNow(), createdBy:spUser()
+    };
+    DB.acSpareReceipts.push(receipt); // never overwrite previous receiving transactions
+    const prev=r.status;
+    spRecomputeRequest(r);
+    r.actualDelivery=date;
+    // reflect on request-level fields
+    if(g("spr_dn")) r.deliveryNote=g("spr_dn");
+    if(g("spr_inv")) r.invoiceNumber=g("spr_inv");
+    r.deliveryStatus=(r.status==="Delivered"||r.status==="Waiting for Installation")?"Delivered":(r.status==="Partially Delivered"?"Partially Delivered":r.deliveryStatus||"");
+    r.updated=spNow();
+    spAudit(r.id,"Delivery recorded",prev,r.status,"DN "+(g("spr_dn")||"")+" · "+recvLines.reduce((s,l)=>s+l.currentReceived,0)+" item(s)");
+    saveDB(); buildNav(); closeModal();
+    if(CURRENT==="maintenance") renderMaintenance();
+    toast("Delivery recorded","Status: "+r.status,"ok");
+  });
+}
+
+// ============================================================
+//  INSTALLATION / REPLACEMENT
+// ============================================================
+let _spInstallLines=[]; let _spInstallReqId=null;
+function spOpenInstallForm(reqId){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r){ toast("Request not found","","err"); return; }
+  // must have accepted parts
+  const totalAccepted=(r.lines||[]).reduce((s,li)=>s+spAcceptedForLine(reqId,li.id),0);
+  if(totalAccepted<=0){ toast("No accepted parts","Record a delivery with accepted quantities before installation","err"); return; }
+  _spInstallReqId=reqId;
+  _stagedFiles=[];
+  _spInstallLines=(r.lines||[]).map(li=>{
+    const accepted=spAcceptedForLine(reqId,li.id);
+    const alreadyInstalled=spInstalledForLine(reqId,li.id);
+    return {lineId:li.id, partName:li.partName, partNumber:li.partNumber, accepted, alreadyInstalled, qtyInstalled:0};
+  }).filter(li=>li.accepted>0);
+  const today=new Date().toISOString().slice(0,10);
+  const unit=r.assetUnitId?spFindUnit(r.assetUnitId):null;
+  openModal(`
+    <div class="modal-head"><h3>Record Installation / Replacement — ${esc(r.reqNo||"")}</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="field"><label class="req">Replacement Date</label><input type="date" id="spi_date" value="${today}"></div>
+        <div class="field"><label>Technician</label><input id="spi_tech" value="${esc(r.responsible||spUser())}"></div>
+        <div class="field"><label>Supervisor</label><input id="spi_supervisor" value=""></div>
+        <div class="field"><label>Removed Part Name</label><input id="spi_removedName" value=""></div>
+        <div class="field"><label>Removed Part Number</label><input id="spi_removedNo" value=""></div>
+        <div class="field"><label>Removed Part Serial</label><input id="spi_removedSerial" value=""></div>
+        <div class="field"><label>Removed Part Condition</label><input id="spi_removedCond" value=""></div>
+        <div class="field"><label>Disposal Method</label><input id="spi_disposal" value=""></div>
+        <div class="field"><label>New Part Serial Number</label><input id="spi_newSerial" value=""></div>
+        <div class="field"><label>Installation Action</label><input id="spi_action" value=""></div>
+        <div class="field"><label>Refrigerant Added</label><input id="spi_refrigerant" value=""></div>
+        <div class="field"><label class="req">Testing Result</label><select id="spi_test">${SP_TEST_RESULTS.map(t=>`<option>${t}</option>`).join("")}</select></div>
+        <div class="field"><label>Cooling Test Result</label><input id="spi_cooling" value=""></div>
+        <div class="field"><label>Voltage / Current Test</label><input id="spi_voltage" value=""></div>
+        <div class="field"><label>Operating Pressure</label><input id="spi_pressure" value=""></div>
+        <div class="field"><label>Error Code After Repair</label><input id="spi_errorCode" value=""></div>
+        <div class="field"><label>Equipment Returned to Service</label><select id="spi_returned"><option>No</option><option>Yes</option></select></div>
+        <div class="field"><label>Final Equipment Condition</label><select id="spi_finalCond">${AC_CONDITIONS.map(c=>`<option ${(unit&&unit.condition===c)?'selected':''}>${c}</option>`).join("")}</select></div>
+        <div class="field"><label>Final Operating Status</label><select id="spi_finalOp">${AC_OP_STATUS.map(c=>`<option ${(unit&&unit.opStatus===c)?'selected':''}>${c}</option>`).join("")}</select></div>
+        <div class="field"><label>Total Downtime (h)</label><input type="number" min="0" step="0.5" id="spi_downtime" value="${esc(r.downtime||'')}"></div>
+        <div class="field"><label>Follow-up Required</label><select id="spi_followup"><option>No</option><option>Yes</option></select></div>
+        <div class="field"><label>Follow-up Date</label><input type="date" id="spi_followupDate" value=""></div>
+        <div class="field"><label>Technician Signature</label><input id="spi_techSign" value=""></div>
+        <div class="field"><label>Supervisor Verification</label><input id="spi_supVerify" value=""></div>
+        <div class="field full"><label>Remarks</label><textarea id="spi_remarks" rows="2"></textarea></div>
+      </div>
+      <div class="sp-sec-title">Parts Installed</div>
+      <div class="table-wrap" style="overflow-x:auto"><table class="sp-table"><thead><tr><th>New Part</th><th class="n">Accepted</th><th class="n">Already Installed</th><th class="n">Install Now</th></tr></thead>
+      <tbody>${_spInstallLines.map((li,i)=>`<tr><td><b>${esc(li.partName)}</b>${li.partNumber?`<div class="muted" style="font-size:11px">${esc(li.partNumber)}</div>`:""}</td><td class="n">${li.accepted}</td><td class="n">${li.alreadyInstalled}</td><td class="n"><input type="number" min="0" step="1" value="0" style="width:70px" oninput="spInstallInput(${i},this.value)"></td></tr>`).join("")}</tbody></table></div>
+      <div class="sp-sec-title">Before / After Attachments</div>
+      <label class="file-drop"><input type="file" multiple accept="${FILE_TYPES}" onchange="handleFileInput(this)"><span>Photos before/after replacement, testing evidence, warranty docs…</span></label>
+      <div id="fileList" class="file-list"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="spSaveInstall()">Save Installation</button></div>
+  `,{size:"wide"});
+  renderStagedFiles();
+}
+function spInstallInput(i,val){ _spInstallLines[i].qtyInstalled=Math.max(0,Number(val)||0); }
+function spSaveInstall(){
+  if(!spCanEdit()){ toast("Permission denied","","err"); return; }
+  const r=DB.acSpareRequests.find(x=>x.id===_spInstallReqId); if(!r) return;
+  const g=id=>{ const el=document.getElementById(id); return el?el.value:""; };
+  const date=g("spi_date"); if(!date){ toast("Replacement date required","","err"); return; }
+  const authorized=spCanException();
+  const insLines=[]; let anyInstall=false;
+  for(let i=0;i<_spInstallLines.length;i++){
+    const li=_spInstallLines[i];
+    const q=Number(li.qtyInstalled)||0;
+    const remaining=Math.max(0,li.accepted-li.alreadyInstalled);
+    if(q<0){ toast("No negative quantities","","err"); return; }
+    if(q>remaining && !authorized){ toast("Installed exceeds accepted","Part \""+li.partName+"\": cannot install "+q+"; only "+remaining+" accepted and not yet installed.","err"); return; }
+    if(q>0) anyInstall=true;
+    insLines.push({lineId:li.lineId,partName:li.partName,partNumber:li.partNumber,qtyInstalled:q});
+  }
+  if(!anyInstall){ toast("Nothing installed","Enter an installed quantity for at least one part","err"); return; }
+  const testResult=g("spi_test");
+  persistStagedFiles(_stagedFiles).then(fileRefs=>{
+    const rec={
+      id:uid(), reqId:r.id, reqNo:r.reqNo, maintRecordId:r.linkedMaint||r.linkedCM||"", assetId:r.assetId,
+      assetUnitId:r.assetUnitId||"", campus:r.campus, location:r.equipLocation,
+      replacementDate:date, technician:g("spi_tech"), supervisor:g("spi_supervisor"),
+      removedPartName:g("spi_removedName"), removedPartNumber:g("spi_removedNo"), removedPartSerial:g("spi_removedSerial"),
+      removedPartCondition:g("spi_removedCond"), disposalMethod:g("spi_disposal"),
+      newPartName:insLines.map(l=>l.partName).join(", "), newPartSerial:g("spi_newSerial"),
+      qtyInstalled:insLines.reduce((s,l)=>s+l.qtyInstalled,0), installAction:g("spi_action"), refrigerantAdded:g("spi_refrigerant"),
+      testResult, coolingTest:g("spi_cooling"), voltageTest:g("spi_voltage"), operatingPressure:g("spi_pressure"),
+      errorCode:g("spi_errorCode"), returnedToService:g("spi_returned"), finalCondition:g("spi_finalCond"), finalOpStatus:g("spi_finalOp"),
+      totalDowntime:g("spi_downtime"), followup:g("spi_followup"), followupDate:g("spi_followupDate"),
+      techSignature:g("spi_techSign"), supervisorVerify:g("spi_supVerify"), remarks:g("spi_remarks"),
+      lines:insLines, files:fileRefs, created:spNow(), createdBy:spUser()
+    };
+    DB.acReplacementRecords.push(rec);
+    const prev=r.status;
+    spRecomputeRequest(r); // updates per-line installed
+    // On successful installation + pass, update equipment + maintenance and set request Completed
+    if(testResult==="Pass" && g("spi_returned")==="Yes"){
+      // update equipment
+      const u=r.assetUnitId?spFindUnit(r.assetUnitId):spUnitByAssetId(r.assetId);
+      if(u){
+        if(g("spi_finalCond")) u.condition=g("spi_finalCond");
+        if(g("spi_finalOp")) u.opStatus=g("spi_finalOp");
+        u.spareHistory=u.spareHistory||[];
+        u.spareHistory.push({at:spNow(),reqNo:r.reqNo,date:date,parts:rec.newPartName,by:rec.technician,result:testResult});
+      }
+      // update linked maintenance / corrective record
+      spUpdateLinkedMaintenance(r,rec);
+      r.status="Completed";
+    } else {
+      // installed but testing not passed / not returned -> Installed or Testing stage
+      if(testResult==="Fail"||testResult==="Further Action Required") r.status="Testing";
+      else r.status="Installed";
+    }
+    r.installedDate=date; r.testResult=testResult; r.returnedToService=g("spi_returned");
+    r.updated=spNow();
+    spAudit(r.id,"Installation recorded",prev,r.status,"Test: "+testResult+" · Returned: "+g("spi_returned"));
+    saveDB(); buildNav(); closeModal();
+    if(CURRENT==="maintenance") renderMaintenance();
+    toast("Installation recorded", testResult==="Pass"?"Testing passed · Status: "+r.status:"Status: "+r.status, testResult==="Fail"?"err":"ok");
+  });
+}
+// Push the installed spare-parts cost onto the linked maintenance/corrective record (final installed cost)
+function spUpdateLinkedMaintenance(r,rec){
+  const installedCost=(r.lines||[]).reduce((s,li)=>{
+    const price=(Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0);
+    return s+(spInstalledForLine(r.id,li.id)*price);
+  },0);
+  // maintenance record (acRecords) by recId
+  if(r.linkedMaint){
+    const m=DB.acRecords.find(x=>x.recId===r.linkedMaint);
+    if(m){
+      m.partsCost=Number(installedCost.toFixed(2));
+      m.parts=((m.parts?m.parts+"; ":"")+"Replaced: "+rec.newPartName).slice(0,300);
+      if(rec.finalCondition) m.conditionAfter=rec.finalCondition;
+      m.updated=Date.now();
+      if(!Array.isArray(m.checklist)) {}
+    }
+  }
+  // corrective record (acCorrective) by cmId
+  if(r.linkedCM){
+    const c=DB.acCorrective.find(x=>x.cmId===r.linkedCM);
+    if(c){
+      c.repairCost=Number(((Number(c.repairCost)||0)+installedCost).toFixed(2))===installedCost?installedCost:Number(installedCost.toFixed(2));
+      c.parts=((c.parts?c.parts+"; ":"")+"Replaced: "+rec.newPartName).slice(0,300);
+      if(rec.testResult) c.testing=rec.testResult;
+      if(rec.returnedToService==="Yes" && !["Completed","Closed"].includes(c.stage)) c.stage="Completed";
+      c.updated=Date.now();
+    }
+  }
+}
+
+// ---- Closure guards ----
+function spCanClose(r){
+  const reasons=[];
+  // all approved/ordered quantities received?
+  let allReceived=true;
+  (r.lines||[]).forEach(li=>{
+    const ordered=(Number(li.qtyOrdered)||0)>0?Number(li.qtyOrdered):(Number(li.qtyApproved)||Number(li.qtyRequested)||0);
+    if(ordered>0 && spReceivedForLine(r.id,li.id)<ordered) allReceived=false;
+    if(ordered<=0) allReceived=false;
+  });
+  if(!allReceived) reasons.push("Not all required quantities have been received");
+  if(!DB.acReplacementRecords.some(x=>x.reqId===r.id)) reasons.push("No installation/replacement has been recorded");
+  const lastRep=DB.acReplacementRecords.filter(x=>x.reqId===r.id).slice(-1)[0];
+  if(lastRep && lastRep.testResult!=="Pass") reasons.push("Latest testing result is not Pass");
+  if(lastRep && lastRep.returnedToService!=="Yes") reasons.push("Equipment has not been returned to service");
+  return reasons;
+}
+function spCloseRequest(reqId){
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r) return;
+  const reasons=spCanClose(r);
+  if(reasons.length){
+    if(!spCanException()){
+      toast("Cannot close request", reasons[0]+(reasons.length>1?(" (+"+(reasons.length-1)+" more)"):""),"err");
+      return;
+    }
+    // authorized user may close with a justified exception
+    confirmModal("Close with exception?","The following conditions are not met:<br><br>• "+reasons.map(esc).join("<br>• ")+"<br><br>As an authorized user you may record a justified exception and close anyway.",()=>{
+      const prev=r.status; r.status="Closed"; r.closedException=true; r.updated=spNow();
+      spAudit(r.id,"Closed (exception)",prev,"Closed","Closed despite: "+reasons.join("; "));
+      saveDB(); buildNav(); if(CURRENT==="maintenance") renderMaintenance(); toast("Request closed (exception recorded)","","ok");
+    },"Close anyway",false);
+    return;
+  }
+  const prev=r.status; r.status="Closed"; r.updated=spNow();
+  spAudit(r.id,"Closed",prev,"Closed","All closure conditions met");
+  saveDB(); buildNav(); if(CURRENT==="maintenance") renderMaintenance(); toast("Request closed","","ok");
+}
+
+// ============================================================
+//  DELIVERY & INSTALLATION TAB (rebuilt)
+// ============================================================
+function spPaintDelivery(host){
+  const rows=DB.acSpareRequests.filter(r=>["Ordered","Partially Delivered","Delivered","Waiting for Installation","Installation Scheduled","Installed","Testing","Completed"].includes(r.status) || DB.acSpareReceipts.some(x=>x.reqId===r.id));
+  const canEdit=spCanEdit();
+  host.innerHTML=`
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:800">Delivery &amp; Installation <span class="muted" style="font-size:12.5px;font-weight:600">${rows.length} in progress</span></div><div class="grow"></div></div>
+    <div class="table-wrap" style="overflow-x:auto"><table class="sp-table"><thead><tr>
+      <th style="position:sticky;left:0;background:var(--surface)">Request ID</th><th>Asset</th><th>Status</th><th>Delivery</th><th>Replacement</th><th>Test</th><th>Returned</th><th style="min-width:280px">Actions</th>
+    </tr></thead><tbody>${rows.length?rows.map(r=>{
+      const dp=spDeliveryProgress(r), rp=spReplacementProgress(r);
+      const hasAccepted=(r.lines||[]).some(li=>spAcceptedForLine(r.id,li.id)>0);
+      const closeReasons=spCanClose(r);
+      return `<tr>
+        <td style="position:sticky;left:0;background:var(--surface)"><b>${esc(r.reqNo||"")}</b></td>
+        <td>${esc(r.assetId||"—")}</td>
+        <td>${spStatusBadge(r.status)}</td>
+        <td>${spProgressBar(dp.pct,dp.text)}</td>
+        <td>${spProgressBar(rp.pct,rp.text)}</td>
+        <td>${r.testResult?`<span class="campus-tag" style="background:${r.testResult==='Pass'?'#05966922;color:#059669':'#dc262622;color:#dc2626'}">${esc(r.testResult)}</span>`:'<span class="muted">—</span>'}</td>
+        <td>${r.returnedToService==='Yes'?'<span style="color:#059669">✓ Yes</span>':(r.returnedToService==='No'?'<span class="muted">No</span>':'—')}</td>
+        <td><div style="display:flex;gap:4px;flex-wrap:wrap">
+          ${canEdit?`<button class="btn btn-sm btn-primary" onclick="spOpenReceiveForm('${r.id}')">Record Delivery</button>`:""}
+          ${canEdit&&hasAccepted?`<button class="btn btn-sm btn-ghost" onclick="spOpenInstallForm('${r.id}')">Record Installation</button>`:""}
+          <button class="btn btn-sm btn-ghost" onclick="spViewReceipts('${r.id}')">History</button>
+          ${(canEdit&&r.status!=='Closed')?`<button class="btn btn-sm ${closeReasons.length?'btn-ghost':'btn-primary'}" title="${closeReasons.length?('Blocked: '+closeReasons.join('; ')):'All conditions met'}" onclick="spCloseRequest('${r.id}')">Close</button>`:""}
+        </div></td>
+      </tr>`;
+    }).join(""):`<tr><td colspan="8"><div class="empty" style="padding:24px"><h4>Nothing in delivery or installation</h4><p>Requests move here once a purchase order is created.</p></div></td></tr>`}</tbody></table></div>`;
+}
+// View cumulative receiving + replacement history for a request
+function spViewReceipts(reqId){
+  const r=DB.acSpareRequests.find(x=>x.id===reqId); if(!r) return;
+  const receipts=DB.acSpareReceipts.filter(x=>x.reqId===reqId).sort((a,b)=>(a.receivingDate||"").localeCompare(b.receivingDate||""));
+  const reps=DB.acReplacementRecords.filter(x=>x.reqId===reqId).sort((a,b)=>(a.replacementDate||"").localeCompare(b.replacementDate||""));
+  const recRows=receipts.map(rc=>`<tr><td>${fmtDateUS(rc.receivingDate)}</td><td>${esc(rc.deliveryNote||"—")}</td><td>${esc(rc.invoiceNumber||"—")}</td><td>${esc(rc.supplier||"—")}</td><td class="n">${(rc.lines||[]).reduce((s,l)=>s+(Number(l.currentReceived)||0),0)}</td><td class="n">${(rc.lines||[]).reduce((s,l)=>s+(Number(l.accepted)||0),0)}</td><td class="n">${(rc.lines||[]).reduce((s,l)=>s+(Number(l.rejected)||0),0)}</td><td>${esc(rc.receivedBy||"—")}</td></tr>`).join("")||'<tr><td colspan="8" class="muted">No deliveries recorded</td></tr>';
+  const repRows=reps.map(rp=>`<tr><td>${fmtDateUS(rp.replacementDate)}</td><td>${esc(rp.newPartName||"—")}</td><td class="n">${rp.qtyInstalled||0}</td><td>${esc(rp.technician||"—")}</td><td>${esc(rp.testResult||"—")}</td><td>${esc(rp.returnedToService||"—")}</td></tr>`).join("")||'<tr><td colspan="6" class="muted">No installations recorded</td></tr>';
+  openModal(`<div class="modal-head"><h3>Delivery &amp; Installation History — ${esc(r.reqNo||"")}</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+  <div class="modal-body">
+    <div class="sp-sec-title">Receiving History (cumulative — never overwritten)</div>
+    <div class="table-wrap" style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Delivery Note</th><th>Invoice</th><th>Supplier</th><th class="n">Received</th><th class="n">Accepted</th><th class="n">Rejected</th><th>By</th></tr></thead><tbody>${recRows}</tbody></table></div>
+    <div class="sp-sec-title">Replacement / Installation History</div>
+    <div class="table-wrap" style="overflow-x:auto"><table><thead><tr><th>Date</th><th>New Part(s)</th><th class="n">Qty</th><th>Technician</th><th>Test</th><th>Returned</th></tr></thead><tbody>${repRows}</tbody></table></div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Close</button></div>`,{size:"wide"});
+}
+
+// ============================================================
+//  REPLACEMENT HISTORY TAB (rebuilt)
+// ============================================================
+function spPaintHistory(host){
+  const recs=DB.acReplacementRecords.slice().sort((a,b)=>(b.replacementDate||"").localeCompare(a.replacementDate||""));
+  host.innerHTML=`
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:800">Replacement History <span class="muted" style="font-size:12.5px;font-weight:600">${recs.length} record(s)</span></div><div class="grow"></div>
+      <button class="btn btn-ghost btn-sm" onclick="spExportReplacementsExcel()">Excel</button>
+      <button class="btn btn-ghost btn-sm" onclick="spPrintReplacements()">Print</button></div>
+    <div class="table-wrap" style="overflow-x:auto"><table class="sp-table"><thead><tr>
+      <th>Date</th><th>Request</th><th>Asset</th><th>Campus</th><th>Removed Part</th><th>New Part</th><th class="n">Qty</th><th>Technician</th><th>Test Result</th><th>Returned</th><th>Att</th>
+    </tr></thead><tbody>${recs.length?recs.map(x=>{
+      const att=(x.files&&x.files.length)?`<span class="att-pill" onclick="spPreviewReplacementFile('${x.id}',0)">${x.files.length}</span>`:'<span class="muted">—</span>';
+      return `<tr>
+        <td>${fmtDateUS(x.replacementDate)}</td><td><b>${esc(x.reqNo||"—")}</b></td><td>${esc(x.assetId||"—")}</td>
+        <td>${x.campus?`<span class="campus-tag ${campusTagClass(x.campus)}">${esc(x.campus)}</span>`:"—"}</td>
+        <td>${esc(x.removedPartName||"—")}</td><td>${esc(x.newPartName||"—")}</td><td class="n">${x.qtyInstalled||0}</td>
+        <td>${esc(x.technician||"—")}</td>
+        <td>${x.testResult?`<span class="campus-tag" style="background:${x.testResult==='Pass'?'#05966922;color:#059669':x.testResult==='Fail'?'#dc262622;color:#dc2626':'#d9770622;color:#d97706'}">${esc(x.testResult)}</span>`:"—"}</td>
+        <td>${x.returnedToService==='Yes'?'<span style="color:#059669">✓</span>':(x.returnedToService||"—")}</td>
+        <td>${att}</td>
+      </tr>`;
+    }).join(""):`<tr><td colspan="11"><div class="empty" style="padding:24px"><h4>No replacements recorded yet</h4><p>Completed installations will appear here.</p></div></td></tr>`}</tbody></table></div>`;
+}
+async function spPreviewReplacementFile(id,i){
+  const x=DB.acReplacementRecords.find(r=>r.id===id); if(!x||!x.files||!x.files[i]) return;
+  const f=x.files[i]; const data=await resolveFileData(f);
+  if(!data){ toast("File unavailable","","err"); return; }
+  spOpenFilePreview(f,data);
+}
+function spExportReplacementsExcel(){
+  if(typeof XLSX==="undefined"){ toast("Excel unavailable","","err"); return; }
+  const rows=DB.acReplacementRecords.map(x=>({Date:x.replacementDate,Request:x.reqNo,Asset:x.assetId,Campus:x.campus,RemovedPart:x.removedPartName,NewPart:x.newPartName,Qty:x.qtyInstalled,Technician:x.technician,Supervisor:x.supervisor,TestResult:x.testResult,ReturnedToService:x.returnedToService,Downtime:x.totalDowntime}));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{Date:""}]),"Replacements");
+  XLSX.writeFile(wb,"spare-parts-replacements-"+new Date().toISOString().slice(0,10)+".xlsx"); toast("Excel exported","","ok");
+}
+function spPrintReplacements(){
+  const rows=DB.acReplacementRecords.slice().sort((a,b)=>(b.replacementDate||"").localeCompare(a.replacementDate||""));
+  const body=`<table><thead><tr><th>Date</th><th>Request</th><th>Asset</th><th>Removed</th><th>New Part</th><th>Qty</th><th>Technician</th><th>Test</th><th>Returned</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${fmtDateUS(x.replacementDate)}</td><td>${esc(x.reqNo||"")}</td><td>${esc(x.assetId||"")}</td><td>${esc(x.removedPartName||"")}</td><td>${esc(x.newPartName||"")}</td><td class="n">${x.qtyInstalled||0}</td><td>${esc(x.technician||"")}</td><td>${esc(x.testResult||"")}</td><td>${esc(x.returnedToService||"")}</td></tr>`).join("")||'<tr><td colspan="9">No records</td></tr>'}</tbody></table>`;
+  acReportWindow("Spare Parts Replacement History",body);
+}
+
+/* ============================================================
+   SPARE PARTS — PHASE 6: dashboard KPIs + charts + alerts + reports
+============================================================ */
+// ---- date helpers ----
+function spInMonth(dstr,y,m){ if(!dstr)return false; const d=new Date(dstr); return d.getFullYear()===y && (d.getMonth()+1)===m; }
+function spInYear(dstr,y){ if(!dstr)return false; return new Date(dstr).getFullYear()===y; }
+function spDaysUntil(dstr){ if(!dstr)return null; const d=new Date(dstr); const now=new Date(new Date().toDateString()); return Math.round((d-now)/(1000*60*60*24)); }
+
+// ---- KPI aggregations ----
+function spKPIs(){
+  const reqs=DB.acSpareRequests;
+  const y=_acYear, m=_acMonth;
+  const openReqs=reqs.filter(r=>SP_OPEN_STATUSES.includes(r.status));
+  const kpi={
+    open:openReqs.length,
+    critical:reqs.filter(r=>r.priority==="Critical"&&SP_OPEN_STATUSES.includes(r.status)).length,
+    pendingTech:reqs.filter(r=>["Technical Specification Pending"].includes(r.status)).length,
+    pendingPR:reqs.filter(r=>["Pending Approved PR"].includes(r.status)).length,
+    sourcing:reqs.filter(r=>["Requesting Quotation","Quotation Received","Pending Supplier Selection","Supplier Approved"].includes(r.status)).length,
+    ordered:reqs.filter(r=>["Ordered","Purchase Order Created"].includes(r.status)).length,
+    overdueDeliveries:reqs.filter(r=>spIsOverdue(r)&&["Ordered","Purchase Order Created","Partially Delivered"].includes(r.status)).length,
+    waitingInstall:reqs.filter(r=>["Waiting for Installation","Delivered","Installation Scheduled"].includes(r.status)).length,
+    installedThisMonth:DB.acReplacementRecords.filter(x=>spInMonth(x.replacementDate,y,m)).length,
+    completedThisMonth:reqs.filter(r=>["Completed","Closed"].includes(r.status)&&spInMonth(r.installedDate||r.updated&&new Date(r.updated).toISOString().slice(0,10),y,m)).length,
+    monthlyCost:0, annualCost:0, downtime:0
+  };
+  // cost = installed cost (actual, counted once); fall back to received*price
+  reqs.forEach(r=>{
+    (r.lines||[]).forEach(li=>{
+      const price=(Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0);
+      const inst=Number(li.qtyInstalled)||0;
+    });
+  });
+  // monthly/annual from replacement records (installed date drives realized cost)
+  DB.acReplacementRecords.forEach(rr=>{
+    const r=DB.acSpareRequests.find(x=>x.id===rr.reqId);
+    let cost=0;
+    (rr.lines||[]).forEach(l=>{
+      const li=r&&(r.lines||[]).find(x=>x.id===l.lineId);
+      const price=li?((Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0)):0;
+      cost+=(Number(l.qtyInstalled)||0)*price;
+    });
+    if(spInYear(rr.replacementDate,y)) kpi.annualCost+=cost;
+    if(spInMonth(rr.replacementDate,y,m)) kpi.monthlyCost+=cost;
+    kpi.downtime+=Number(rr.totalDowntime)||0;
+  });
+  return kpi;
+}
+// ---- alerts ----
+function spAlerts(){
+  const reqs=DB.acSpareRequests;
+  const critical=reqs.filter(r=>r.priority==="Critical"&&SP_OPEN_STATUSES.includes(r.status));
+  const overduePR=reqs.filter(r=>r.status==="Pending Approved PR"&&spIsOverdue(r));
+  const overdueQuote=reqs.filter(r=>["Requesting Quotation"].includes(r.status)&&spIsOverdue(r));
+  const overdueDelivery=reqs.filter(r=>spIsOverdue(r)&&["Ordered","Purchase Order Created","Partially Delivered"].includes(r.status));
+  const waitingInstall=reqs.filter(r=>["Waiting for Installation","Delivered"].includes(r.status));
+  const failedTesting=reqs.filter(r=>r.testResult&&r.testResult!=="Pass"&&["Testing","Installed"].includes(r.status));
+  // warranty expiry within 30/60/90
+  const warranty=[];
+  reqs.forEach(r=>(r.lines||[]).forEach(li=>{
+    const days=spDaysUntil(li.warrantyExpiry);
+    if(days!=null && days>=0 && days<=90) warranty.push({req:r,part:li.partName,days,expiry:li.warrantyExpiry});
+  }));
+  warranty.sort((a,b)=>a.days-b.days);
+  return {critical,overduePR,overdueQuote,overdueDelivery,waitingInstall,failedTesting,warranty};
+}
+
+// ---- dashboard section HTML ----
+function spDashboardSection(){
+  if(!DB.acSpareRequests.length && !DB.acReplacementRecords.length) return "";
+  const k=spKPIs();
+  const a=spAlerts();
+  const kc=(v,l,col)=>`<div class="kpi"><div class="val" style="font-size:20px;color:${col||'var(--text)'}">${v}</div><div class="lbl">${l}</div></div>`;
+  const alertRow=(items,color,label,fmt)=>items.length?`<div style="margin-bottom:8px"><div style="font-weight:700;font-size:12px;color:${color};margin-bottom:3px">${label} (${items.length})</div>${items.slice(0,5).map(fmt).join("")}</div>`:"";
+  return `
+  <div style="margin-top:22px;display:flex;align-items:center;gap:8px"><div style="font-size:15px;font-weight:800">Spare Parts & Replacement</div><span class="campus-tag" style="background:#2563eb22;color:#2563eb">${DB.acSpareRequests.length} request(s)</span></div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin-top:10px">
+    ${kc(k.open,"Open Requests","#2563eb")}
+    ${kc(k.critical,"Critical",k.critical?"#dc2626":"#059669")}
+    ${kc(k.pendingTech,"Pending Tech Confirm",k.pendingTech?"#d97706":"#059669")}
+    ${kc(k.pendingPR,"Pending Approved PR",k.pendingPR?"#d97706":"#059669")}
+    ${kc(k.sourcing,"Under Sourcing","#0891b2")}
+    ${kc(k.ordered,"Ordered","#7c3aed")}
+    ${kc(k.overdueDeliveries,"Overdue Deliveries",k.overdueDeliveries?"#dc2626":"#059669")}
+    ${kc(k.waitingInstall,"Waiting Installation",k.waitingInstall?"#d97706":"#059669")}
+    ${kc(k.installedThisMonth,"Installed This Month","#059669")}
+    ${kc(k.completedThisMonth,"Completed This Month","#059669")}
+    ${kc(sp_usd(k.monthlyCost),"Monthly Cost","#2563eb")}
+    ${kc(sp_usd(k.annualCost),"Annual Cost","#059669")}
+    ${kc(k.downtime+"h","Total AC Downtime",k.downtime?"#d97706":"#059669")}
+  </div>
+  <div class="charts-grid" style="margin-top:14px">
+    <div class="card"><div class="card-head"><h3>Requests by Status</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="spChartStatus"></canvas></div></div></div>
+    <div class="card"><div class="card-head"><h3>Spare-Parts Cost by Month (${_acYear})</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="spChartMonth"></canvas></div></div></div>
+  </div>
+  <div class="charts-grid">
+    <div class="card"><div class="card-head"><h3>Cost by Campus</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="spChartCampus"></canvas></div></div></div>
+    <div class="card"><div class="card-head"><h3>Cost by AC Type</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="spChartType"></canvas></div></div></div>
+  </div>
+  <div class="charts-grid">
+    <div class="card"><div class="card-head"><h3>Most Frequently Replaced Parts</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="spChartParts"></canvas></div></div></div>
+    <div class="card"><div class="card-head"><h3>Supplier Performance (on-time %)</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="spChartSupplier"></canvas></div></div></div>
+  </div>
+  <div class="charts-grid">
+    <div class="card"><div class="card-head"><h3>Delivery Lead Time (days)</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="spChartLead"></canvas></div></div></div>
+    <div class="card"><div class="card-head"><h3>Replacement Completion Trend (${_acYear})</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="spChartTrend"></canvas></div></div></div>
+  </div>
+  <div class="card" style="margin-top:14px"><div class="card-head"><h3>Spare-Parts Alerts</h3></div><div class="card-body">
+    ${(a.critical.length||a.overduePR.length||a.overdueQuote.length||a.overdueDelivery.length||a.waitingInstall.length||a.failedTesting.length||a.warranty.length)?`
+    ${alertRow(a.critical,"#dc2626","Critical Breakdowns",r=>`<div class="sp-alert-row"><span>${esc(r.reqNo||"")} · ${esc(r.assetId||"")} — ${esc(r.faultDescription||"")}</span></div>`)}
+    ${alertRow(a.overduePR,"#d97706","Overdue Approved PRs",r=>`<div class="sp-alert-row"><span>${esc(r.reqNo||"")} · ${esc(r.assetId||"")}</span><span class="muted" style="font-size:11px">due ${fmtDateUS(r.requiredDate)}</span></div>`)}
+    ${alertRow(a.overdueQuote,"#d97706","Overdue Quotations",r=>`<div class="sp-alert-row"><span>${esc(r.reqNo||"")} · ${esc(r.assetId||"")}</span></div>`)}
+    ${alertRow(a.overdueDelivery,"#dc2626","Overdue Deliveries",r=>`<div class="sp-alert-row"><span>${esc(r.reqNo||"")} · ${esc(r.assetId||"")}</span><span class="muted" style="font-size:11px">exp ${fmtDateUS(r.expectedDelivery)}</span></div>`)}
+    ${alertRow(a.waitingInstall,"#0891b2","Delivered — Waiting for Installation",r=>`<div class="sp-alert-row"><span>${esc(r.reqNo||"")} · ${esc(r.assetId||"")}</span></div>`)}
+    ${alertRow(a.failedTesting,"#dc2626","Failed Post-Installation Testing",r=>`<div class="sp-alert-row"><span>${esc(r.reqNo||"")} · ${esc(r.assetId||"")} — ${esc(r.testResult||"")}</span></div>`)}
+    ${a.warranty.length?`<div style="margin-bottom:4px"><div style="font-weight:700;font-size:12px;color:#7c3aed;margin-bottom:3px">Warranty Expiring (≤90 days) (${a.warranty.length})</div>${a.warranty.slice(0,6).map(w=>`<div class="sp-alert-row"><span>${esc(w.req.reqNo||"")} · ${esc(w.part)}</span><span class="muted" style="font-size:11px">${w.days}d (${fmtDateUS(w.expiry)})</span></div>`).join("")}</div>`:""}
+    `:'<p class="muted">No spare-parts alerts.</p>'}
+  </div></div>`;
+}
+
+// ---- lead time + supplier performance helpers ----
+function spLineLeadTimes(){
+  // per receipt: leadtime = receivingDate - orderDate(request)
+  const arr=[];
+  DB.acSpareReceipts.forEach(rc=>{
+    const r=DB.acSpareRequests.find(x=>x.id===rc.reqId);
+    if(!r||!r.orderDate||!rc.receivingDate) return;
+    const days=Math.round((new Date(rc.receivingDate)-new Date(r.orderDate))/(1000*60*60*24));
+    if(days>=0) arr.push({supplier:rc.supplier||r.selectedSupplier||"Unknown",days,onTime:(r.expectedDelivery?new Date(rc.receivingDate)<=new Date(r.expectedDelivery):null)});
+  });
+  return arr;
+}
+
+// ---- draw charts ----
+function drawSpareCharts(){
+  if(typeof Chart==="undefined") return;
+  if(!window._spCharts) window._spCharts={};
+  Object.keys(window._spCharts).forEach(k=>{ try{ window._spCharts[k].destroy(); }catch(e){} });
+  window._spCharts={};
+  const C=(window.__chartColors)||{grid:"rgba(0,0,0,.06)"};
+  const grid=getComputedStyle(document.body).getPropertyValue("--border")||"rgba(0,0,0,.08)";
+  const reqs=DB.acSpareRequests;
+  // 1. requests by status
+  const e1=document.getElementById("spChartStatus");
+  if(e1){
+    const counts={}; SP_STATUSES.forEach(s=>{ const n=reqs.filter(r=>r.status===s).length; if(n)counts[s]=n; });
+    window._spCharts.status=new Chart(e1,{type:"bar",data:{labels:Object.keys(counts),datasets:[{data:Object.values(counts),backgroundColor:"#2563eb",borderRadius:5,maxBarThickness:20}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:grid},ticks:{precision:0}},y:{grid:{display:false},ticks:{font:{size:10}}}}}});
+  }
+  // 2. cost by month
+  const e2=document.getElementById("spChartMonth");
+  if(e2){
+    const monthly=AC_MONTHS.map((_,i)=>{ let c=0; DB.acReplacementRecords.forEach(rr=>{ if(spInMonth(rr.replacementDate,_acYear,i+1)){ const r=reqs.find(x=>x.id===rr.reqId); (rr.lines||[]).forEach(l=>{ const li=r&&(r.lines||[]).find(x=>x.id===l.lineId); const price=li?((Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0)):0; c+=(Number(l.qtyInstalled)||0)*price; }); } }); return Math.round(c); });
+    window._spCharts.month=new Chart(e2,{type:"bar",data:{labels:AC_MONTHS.map(m=>m.slice(0,3)),datasets:[{data:monthly,backgroundColor:"#059669",borderRadius:5,maxBarThickness:18}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:grid},ticks:{callback:v=>"$"+v}},x:{grid:{display:false}}}}});
+  }
+  // 3. cost by campus (installed cost)
+  const e3=document.getElementById("spChartCampus");
+  if(e3){
+    const byC={};
+    DB.acReplacementRecords.forEach(rr=>{ const r=reqs.find(x=>x.id===rr.reqId); const camp=(r&&r.campus)||"Unknown"; let c=0; (rr.lines||[]).forEach(l=>{ const li=r&&(r.lines||[]).find(x=>x.id===l.lineId); const price=li?((Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0)):0; c+=(Number(l.qtyInstalled)||0)*price; }); byC[camp]=(byC[camp]||0)+c; });
+    const labels=Object.keys(byC); const vals=labels.map(l=>Math.round(byC[l]));
+    window._spCharts.campus=new Chart(e3,{type:"bar",data:{labels,datasets:[{data:vals,backgroundColor:"#7c3aed",borderRadius:5,maxBarThickness:26}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:grid},ticks:{callback:v=>"$"+v}},x:{grid:{display:false},ticks:{font:{size:10}}}}}});
+  }
+  // 4. cost by AC type
+  const e4=document.getElementById("spChartType");
+  if(e4){
+    const byT={"Single Split":0,"VRF":0};
+    DB.acReplacementRecords.forEach(rr=>{ const r=reqs.find(x=>x.id===rr.reqId); const t=(r&&r.acType)||"Single Split"; let c=0; (rr.lines||[]).forEach(l=>{ const li=r&&(r.lines||[]).find(x=>x.id===l.lineId); const price=li?((Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0)):0; c+=(Number(l.qtyInstalled)||0)*price; }); byT[t]=(byT[t]||0)+c; });
+    window._spCharts.type=new Chart(e4,{type:"doughnut",data:{labels:Object.keys(byT),datasets:[{data:Object.values(byT).map(v=>Math.round(v)),backgroundColor:["#7c3aed","#0d9488"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"60%",plugins:{legend:{position:"right",labels:{usePointStyle:true,padding:10}}}}});
+  }
+  // 5. most frequently replaced parts
+  const e5=document.getElementById("spChartParts");
+  if(e5){
+    const byP={};
+    DB.acReplacementRecords.forEach(rr=>{ (rr.lines||[]).forEach(l=>{ const nm=l.partName||"Unknown"; byP[nm]=(byP[nm]||0)+(Number(l.qtyInstalled)||0); }); });
+    const sorted=Object.entries(byP).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    window._spCharts.parts=new Chart(e5,{type:"bar",data:{labels:sorted.map(x=>x[0]),datasets:[{data:sorted.map(x=>x[1]),backgroundColor:"#0891b2",borderRadius:5,maxBarThickness:20}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:grid},ticks:{precision:0}},y:{grid:{display:false},ticks:{font:{size:10}}}}}});
+  }
+  // 6. supplier performance (on-time %)
+  const e6=document.getElementById("spChartSupplier");
+  if(e6){
+    const lead=spLineLeadTimes(); const bySup={};
+    lead.forEach(x=>{ if(x.onTime==null)return; bySup[x.supplier]=bySup[x.supplier]||{ontime:0,total:0}; bySup[x.supplier].total++; if(x.onTime)bySup[x.supplier].ontime++; });
+    const labels=Object.keys(bySup); const vals=labels.map(l=>Math.round(bySup[l].ontime/bySup[l].total*100));
+    if(labels.length) window._spCharts.supplier=new Chart(e6,{type:"bar",data:{labels,datasets:[{data:vals,backgroundColor:"#059669",borderRadius:5,maxBarThickness:26}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:grid},max:100,ticks:{callback:v=>v+"%"}},x:{grid:{display:false},ticks:{font:{size:10}}}}}});
+    else spNoData(e6);
+  }
+  // 7. delivery lead time (avg per supplier)
+  const e7=document.getElementById("spChartLead");
+  if(e7){
+    const lead=spLineLeadTimes(); const bySup={};
+    lead.forEach(x=>{ bySup[x.supplier]=bySup[x.supplier]||{sum:0,n:0}; bySup[x.supplier].sum+=x.days; bySup[x.supplier].n++; });
+    const labels=Object.keys(bySup); const vals=labels.map(l=>Math.round(bySup[l].sum/bySup[l].n));
+    if(labels.length) window._spCharts.lead=new Chart(e7,{type:"bar",data:{labels,datasets:[{data:vals,backgroundColor:"#d97706",borderRadius:5,maxBarThickness:26}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:grid},ticks:{callback:v=>v+"d"}},x:{grid:{display:false},ticks:{font:{size:10}}}}}});
+    else spNoData(e7);
+  }
+  // 8. replacement completion trend
+  const e8=document.getElementById("spChartTrend");
+  if(e8){
+    const monthly=AC_MONTHS.map((_,i)=>DB.acReplacementRecords.filter(rr=>spInMonth(rr.replacementDate,_acYear,i+1)&&rr.testResult==="Pass").length);
+    window._spCharts.trend=new Chart(e8,{type:"line",data:{labels:AC_MONTHS.map(m=>m.slice(0,3)),datasets:[{label:"Completed",data:monthly,borderColor:"#2563eb",backgroundColor:"rgba(37,99,235,.1)",fill:true,tension:.35}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:grid},ticks:{precision:0}},x:{grid:{display:false}}}}});
+  }
+}
+function spNoData(canvas){ const ctx=canvas.getContext&&canvas.getContext("2d"); if(!ctx)return; const p=canvas.parentElement; if(p) p.innerHTML='<div class="empty" style="padding:20px"><p class="muted">No data yet</p></div>'; }
+
+// ============================================================
+//  REPORTS  (15 printable + Excel)
+// ============================================================
+const SP_REPORTS=[
+  ["Open Spare-Parts Requests","spReportOpen"],
+  ["Pending Approved PR","spReportPendingPR"],
+  ["Purchasing Status","spReportPurchasing"],
+  ["Outstanding Delivery","spReportOutstanding"],
+  ["Spare Parts Received","spReportReceived"],
+  ["Replacement History","spReportReplacementHistory"],
+  ["Cost by Campus","spReportCostCampus"],
+  ["Cost by Asset","spReportCostAsset"],
+  ["Cost by Supplier","spReportCostSupplier"],
+  ["Monthly & Annual Cost Summary","spReportCostSummary"],
+  ["Frequently Replaced Parts","spReportFreqParts"],
+  ["AC Downtime","spReportDowntime"],
+  ["Supplier Delivery Performance","spReportSupplierPerf"],
+  ["Warranty Expiry","spReportWarranty"],
+  ["Completed Replacement","spReportCompleted"]
+];
+function spPaintReports(host){
+  host.innerHTML=`
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:800">Spare Parts Reports</div><div class="grow"></div>
+      <select class="filter-sel" id="spr_year" onchange="void 0"><option value="">All Years</option>${(()=>{const ys=[];for(let y=2023;y<=(new Date().getFullYear()+1);y++)ys.push(y);return ys.map(y=>`<option ${y===_acYear?'selected':''}>${y}</option>`).join("");})()}</select>
+      <select class="filter-sel" id="spr_campus"><option value="">All Campus</option>${acCampuses().map(c=>`<option>${c}</option>`).join("")}</select>
+      <select class="filter-sel" id="spr_actype"><option value="">All AC Type</option>${SP_ACTYPES.map(c=>`<option>${c}</option>`).join("")}</select>
+      <select class="filter-sel" id="spr_status"><option value="">All Status</option>${SP_STATUSES.map(c=>`<option>${c}</option>`).join("")}</select>
+      <button class="btn btn-primary btn-sm" onclick="spExportAllReportsExcel()">Export All (Excel)</button>
+    </div>
+    <div class="card"><div class="card-body"><div class="con-report-grid">
+      ${SP_REPORTS.map(([name,fn])=>`<div class="con-report-item"><div style="font-weight:600;font-size:13px;margin-bottom:8px">${name}</div><div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="${fn}()">Open / Print</button></div></div>`).join("")}
+    </div></div></div>`;
+}
+// report filter reader
+function spReportFilter(){
+  const g=id=>{ const el=document.getElementById(id); return el?el.value:""; };
+  return {year:g("spr_year"),campus:g("spr_campus"),actype:g("spr_actype"),status:g("spr_status")};
+}
+function spReportRows(){
+  const f=spReportFilter();
+  return DB.acSpareRequests.filter(r=>{
+    if(f.year && !spInYear(r.requestDate,+f.year)) return false;
+    if(f.campus && r.campus!==f.campus) return false;
+    if(f.actype && r.acType!==f.actype) return false;
+    if(f.status && r.status!==f.status) return false;
+    return true;
+  });
+}
+function spRepMoney(v){ return "$"+(Number(v)||0).toFixed(2); }
+// installed cost for a request
+function spReqInstalledCost(r){
+  return (r.lines||[]).reduce((s,li)=>{ const price=(Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0); return s+((Number(li.qtyInstalled)||0)*price); },0);
+}
+
+function spReportOpen(){ const rows=spReportRows().filter(r=>SP_OPEN_STATUSES.includes(r.status));
+  acReportWindow("Open Spare-Parts Requests",`<table><thead><tr><th>Request</th><th>Date</th><th>Priority</th><th>Campus</th><th>Asset</th><th>Status</th><th class="n">Est</th><th>Responsible</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.reqNo||"")}</td><td>${fmtDateUS(r.requestDate)}</td><td>${esc(r.priority||"")}</td><td>${esc(r.campus||"")}</td><td>${esc(r.assetId||"")}</td><td>${esc(r.status||"")}</td><td class="n">${spRepMoney(spReqEstTotal(r))}</td><td>${esc(r.responsible||"")}</td></tr>`).join("")||'<tr><td colspan="8">No open requests</td></tr>'}</tbody></table>`); }
+function spReportPendingPR(){ const rows=spReportRows().filter(r=>["Pending Approved PR","Technical Specification Pending","Specification Confirmed"].includes(r.status));
+  acReportWindow("Pending Approved PR Report",`<table><thead><tr><th>Request</th><th>Asset</th><th>Campus</th><th>Status</th><th>Required Date</th><th class="n">Est</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.reqNo||"")}</td><td>${esc(r.assetId||"")}</td><td>${esc(r.campus||"")}</td><td>${esc(r.status||"")}</td><td>${fmtDateUS(r.requiredDate)}</td><td class="n">${spRepMoney(spReqEstTotal(r))}</td></tr>`).join("")||'<tr><td colspan="6">None</td></tr>'}</tbody></table>`); }
+function spReportPurchasing(){ const rows=spReportRows();
+  acReportWindow("Purchasing Status Report",`<table><thead><tr><th>Request</th><th>Asset</th><th>Status</th><th>PR#</th><th>Supplier</th><th>PO#</th><th class="n">Est</th><th class="n">Ordered</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.reqNo||"")}</td><td>${esc(r.assetId||"")}</td><td>${esc(r.status||"")}</td><td>${esc(r.prNumber||"")}</td><td>${esc(r.selectedSupplier||r.proposedSupplier||"")}</td><td>${esc(r.poNumber||"")}</td><td class="n">${spRepMoney(spReqEstTotal(r))}</td><td class="n">${spRepMoney(spReqActTotal(r))}</td></tr>`).join("")||'<tr><td colspan="8">None</td></tr>'}</tbody></table>`); }
+function spReportOutstanding(){ const rows=spReportRows().filter(r=>["Ordered","Purchase Order Created","Partially Delivered"].includes(r.status));
+  const body=rows.map(r=>{ const out=(r.lines||[]).map(li=>{ const o=spOutstandingForLine(r,li); return o>0?`${esc(li.partName)} (${o})`:""; }).filter(Boolean).join(", "); return `<tr><td>${esc(r.reqNo||"")}</td><td>${esc(r.assetId||"")}</td><td>${esc(r.selectedSupplier||"")}</td><td>${fmtDateUS(r.expectedDelivery)}</td><td>${esc(out||"—")}</td></tr>`; }).join("");
+  acReportWindow("Outstanding Delivery Report",`<table><thead><tr><th>Request</th><th>Asset</th><th>Supplier</th><th>Expected</th><th>Outstanding Items</th></tr></thead><tbody>${body||'<tr><td colspan="5">None</td></tr>'}</tbody></table>`); }
+function spReportReceived(){
+  const f=spReportFilter();
+  let recs=DB.acSpareReceipts.slice(); if(f.year)recs=recs.filter(x=>spInYear(x.receivingDate,+f.year));
+  const body=recs.map(rc=>`<tr><td>${fmtDateUS(rc.receivingDate)}</td><td>${esc(rc.reqNo||"")}</td><td>${esc(rc.deliveryNote||"")}</td><td>${esc(rc.supplier||"")}</td><td class="n">${(rc.lines||[]).reduce((s,l)=>s+(Number(l.currentReceived)||0),0)}</td><td class="n">${(rc.lines||[]).reduce((s,l)=>s+(Number(l.accepted)||0),0)}</td><td class="n">${(rc.lines||[]).reduce((s,l)=>s+(Number(l.rejected)||0),0)}</td><td>${esc(rc.receivedBy||"")}</td></tr>`).join("");
+  acReportWindow("Spare Parts Received Report",`<table><thead><tr><th>Date</th><th>Request</th><th>DN</th><th>Supplier</th><th class="n">Recv</th><th class="n">Accept</th><th class="n">Reject</th><th>By</th></tr></thead><tbody>${body||'<tr><td colspan="8">None</td></tr>'}</tbody></table>`); }
+function spReportReplacementHistory(){ spPrintReplacements(); }
+function spReportCostCampus(){ const rows=spReportRows(); const by={};
+  rows.forEach(r=>{ by[r.campus||"Unknown"]=(by[r.campus||"Unknown"]||0)+spReqInstalledCost(r); });
+  acReportWindow("Spare Parts Cost by Campus",`<table><thead><tr><th>Campus</th><th class="n">Installed Cost</th></tr></thead><tbody>${Object.entries(by).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${spRepMoney(v)}</td></tr>`).join("")||'<tr><td colspan="2">None</td></tr>'}</tbody></table>`); }
+function spReportCostAsset(){ const rows=spReportRows(); const by={};
+  rows.forEach(r=>{ by[r.assetId||"Unknown"]=(by[r.assetId||"Unknown"]||0)+spReqInstalledCost(r); });
+  acReportWindow("Spare Parts Cost by Asset",`<table><thead><tr><th>Asset</th><th class="n">Installed Cost</th></tr></thead><tbody>${Object.entries(by).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${spRepMoney(v)}</td></tr>`).join("")||'<tr><td colspan="2">None</td></tr>'}</tbody></table>`); }
+function spReportCostSupplier(){ const rows=spReportRows(); const by={};
+  rows.forEach(r=>{ const s=r.selectedSupplier||r.proposedSupplier||"Unknown"; by[s]=(by[s]||0)+spReqInstalledCost(r); });
+  acReportWindow("Spare Parts Cost by Supplier",`<table><thead><tr><th>Supplier</th><th class="n">Installed Cost</th></tr></thead><tbody>${Object.entries(by).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${spRepMoney(v)}</td></tr>`).join("")||'<tr><td colspan="2">None</td></tr>'}</tbody></table>`); }
+function spReportCostSummary(){
+  const y=spReportFilter().year||_acYear;
+  const monthly=AC_MONTHS.map((_,i)=>{ let c=0; DB.acReplacementRecords.forEach(rr=>{ if(spInMonth(rr.replacementDate,+y,i+1)){ const r=DB.acSpareRequests.find(x=>x.id===rr.reqId); (rr.lines||[]).forEach(l=>{ const li=r&&(r.lines||[]).find(x=>x.id===l.lineId); const price=li?((Number(li.actUnitPrice)||0)>0?Number(li.actUnitPrice):(Number(li.estUnitPrice)||0)):0; c+=(Number(l.qtyInstalled)||0)*price; }); } }); return c; });
+  const annual=monthly.reduce((a,b)=>a+b,0);
+  acReportWindow("Monthly & Annual Cost Summary ("+y+")",`<table><thead><tr><th>Month</th><th class="n">Installed Cost</th></tr></thead><tbody>${AC_MONTHS.map((m,i)=>`<tr><td>${m}</td><td class="n">${spRepMoney(monthly[i])}</td></tr>`).join("")}<tr><td><b>Annual Total</b></td><td class="n"><b>${spRepMoney(annual)}</b></td></tr></tbody></table>`); }
+function spReportFreqParts(){ const by={};
+  DB.acReplacementRecords.forEach(rr=>(rr.lines||[]).forEach(l=>{ by[l.partName||"Unknown"]=(by[l.partName||"Unknown"]||0)+(Number(l.qtyInstalled)||0); }));
+  const sorted=Object.entries(by).sort((a,b)=>b[1]-a[1]);
+  acReportWindow("Frequently Replaced Parts",`<table><thead><tr><th>Part</th><th class="n">Qty Replaced</th></tr></thead><tbody>${sorted.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${v}</td></tr>`).join("")||'<tr><td colspan="2">None</td></tr>'}</tbody></table>`); }
+function spReportDowntime(){ const rows=DB.acReplacementRecords.slice();
+  const by={}; rows.forEach(rr=>{ by[rr.assetId||"Unknown"]=(by[rr.assetId||"Unknown"]||0)+(Number(rr.totalDowntime)||0); });
+  acReportWindow("AC Downtime Report",`<table><thead><tr><th>Asset</th><th class="n">Total Downtime (h)</th></tr></thead><tbody>${Object.entries(by).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${v}</td></tr>`).join("")||'<tr><td colspan="2">None</td></tr>'}</tbody></table>`); }
+function spReportSupplierPerf(){ const lead=spLineLeadTimes(); const by={};
+  lead.forEach(x=>{ by[x.supplier]=by[x.supplier]||{n:0,sum:0,ontime:0,ot:0}; by[x.supplier].n++; by[x.supplier].sum+=x.days; if(x.onTime!=null){ by[x.supplier].ot++; if(x.onTime)by[x.supplier].ontime++; } });
+  acReportWindow("Supplier Delivery Performance",`<table><thead><tr><th>Supplier</th><th class="n">Deliveries</th><th class="n">Avg Lead (d)</th><th class="n">On-Time %</th></tr></thead><tbody>${Object.entries(by).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${v.n}</td><td class="n">${Math.round(v.sum/v.n)}</td><td class="n">${v.ot?Math.round(v.ontime/v.ot*100)+"%":"—"}</td></tr>`).join("")||'<tr><td colspan="4">None</td></tr>'}</tbody></table>`); }
+function spReportWarranty(){ const rows=[];
+  DB.acSpareRequests.forEach(r=>(r.lines||[]).forEach(li=>{ if(li.warrantyExpiry) rows.push({req:r.reqNo,asset:r.assetId,part:li.partName,expiry:li.warrantyExpiry,days:spDaysUntil(li.warrantyExpiry)}); }));
+  rows.sort((a,b)=>(a.days==null?9999:a.days)-(b.days==null?9999:b.days));
+  acReportWindow("Warranty Expiry Report",`<table><thead><tr><th>Request</th><th>Asset</th><th>Part</th><th>Expiry</th><th class="n">Days Left</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${esc(x.req||"")}</td><td>${esc(x.asset||"")}</td><td>${esc(x.part||"")}</td><td>${fmtDateUS(x.expiry)}</td><td class="n">${x.days==null?"—":x.days}</td></tr>`).join("")||'<tr><td colspan="5">None</td></tr>'}</tbody></table>`); }
+function spReportCompleted(){ const rows=spReportRows().filter(r=>["Completed","Closed"].includes(r.status));
+  acReportWindow("Completed Replacement Report",`<table><thead><tr><th>Request</th><th>Asset</th><th>Campus</th><th>Status</th><th class="n">Installed Cost</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.reqNo||"")}</td><td>${esc(r.assetId||"")}</td><td>${esc(r.campus||"")}</td><td>${esc(r.status||"")}</td><td class="n">${spRepMoney(spReqInstalledCost(r))}</td></tr>`).join("")||'<tr><td colspan="5">None</td></tr>'}</tbody></table>`); }
+
+// Export all reports data to one Excel workbook
+function spExportAllReportsExcel(){
+  if(typeof XLSX==="undefined"){ toast("Excel unavailable","","err"); return; }
+  const wb=XLSX.utils.book_new();
+  const rows=spReportRows();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.map(r=>({Request:r.reqNo,Date:r.requestDate,Priority:r.priority,Campus:r.campus,Asset:r.assetId,ACType:r.acType,Status:r.status,PR:r.prNumber,Supplier:r.selectedSupplier||r.proposedSupplier,PO:r.poNumber,Est:spReqEstTotal(r),Actual:spReqActTotal(r),Installed:spReqInstalledCost(r),Responsible:r.responsible})).length?rows.map(r=>({Request:r.reqNo,Date:r.requestDate,Priority:r.priority,Campus:r.campus,Asset:r.assetId,ACType:r.acType,Status:r.status,PR:r.prNumber,Supplier:r.selectedSupplier||r.proposedSupplier,PO:r.poNumber,Est:spReqEstTotal(r),Actual:spReqActTotal(r),Installed:spReqInstalledCost(r),Responsible:r.responsible})):[{Request:""}]),"Requests");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.acSpareReceipts.map(rc=>({Date:rc.receivingDate,Request:rc.reqNo,DN:rc.deliveryNote,Invoice:rc.invoiceNumber,Supplier:rc.supplier,Received:(rc.lines||[]).reduce((s,l)=>s+(Number(l.currentReceived)||0),0),Accepted:(rc.lines||[]).reduce((s,l)=>s+(Number(l.accepted)||0),0),By:rc.receivedBy})).length?DB.acSpareReceipts.map(rc=>({Date:rc.receivingDate,Request:rc.reqNo,DN:rc.deliveryNote,Invoice:rc.invoiceNumber,Supplier:rc.supplier,Received:(rc.lines||[]).reduce((s,l)=>s+(Number(l.currentReceived)||0),0),Accepted:(rc.lines||[]).reduce((s,l)=>s+(Number(l.accepted)||0),0),By:rc.receivedBy})):[{Date:""}]),"Received");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.acReplacementRecords.map(rr=>({Date:rr.replacementDate,Request:rr.reqNo,Asset:rr.assetId,NewPart:rr.newPartName,Qty:rr.qtyInstalled,Technician:rr.technician,Test:rr.testResult,Returned:rr.returnedToService,Downtime:rr.totalDowntime})).length?DB.acReplacementRecords.map(rr=>({Date:rr.replacementDate,Request:rr.reqNo,Asset:rr.assetId,NewPart:rr.newPartName,Qty:rr.qtyInstalled,Technician:rr.technician,Test:rr.testResult,Returned:rr.returnedToService,Downtime:rr.totalDowntime})):[{Date:""}]),"Replacements");
+  XLSX.writeFile(wb,"spare-parts-reports-"+new Date().toISOString().slice(0,10)+".xlsx");
+  toast("Excel exported","3 sheets","ok");
+}
+
+
+
+
+
+
+
+
+
+
+
 let _maintTab="dashboard";   // dashboard | ict | security | records | reports
 let _maintExpanded=true;
 let _maintYear=2026, _maintQ=1;
@@ -3527,10 +5293,12 @@ function renderMaintenance(){
   };
   const tab=(k,label,badge)=>`<button class="con-tab ${_maintTab===k?'active':''}" onclick="_maintTab='${k}';renderMaintenance()">${label}${badge!=null?` <span class="badge" style="margin-left:4px">${badge}</span>`:""}</button>`;
   const isAC=_maintTab.startsWith("ac:");
+  const isSP=_maintTab.startsWith("sp:");
   const acTabs=[["ac:dashboard","AC Dashboard"],["ac:split","Single Split AC"],["ac:vrf","VRF System"],["ac:schedule","Monthly Schedule"],["ac:pm","Preventive (PM)"],["ac:cm","Corrective (CM)"],["ac:em","Emergency (EM)"],["ac:reports","AC Reports"]];
+  const spTabs=[["sp:requests","Spare Parts Requests"],["sp:purchasing","Purchasing Tracker"],["sp:delivery","Delivery & Installation"],["sp:history","Replacement History"],["sp:reports","Spare Parts Reports"]];
   c.innerHTML=`
     <div class="con-tabs" style="margin-bottom:16px">
-      ${isAC?acTabs.map(t=>tab(t[0],t[1])).join(""):`
+      ${isSP?spTabs.map(t=>tab(t[0],t[1])).join(""):isAC?acTabs.map(t=>tab(t[0],t[1])).join(""):`
       ${tab("dashboard","Maintenance Dashboard")}
       ${tab("ict","ICT Maintenance",counts.ict)}
       ${tab("security","Security Maintenance",counts.security)}
@@ -3543,6 +5311,7 @@ function renderMaintenance(){
   else if(_maintTab==="security") paintMaintProgram("security");
   else if(_maintTab==="records") paintMaintRecords();
   else if(_maintTab==="reports") paintMaintReports();
+  else if(_maintTab.startsWith("sp:")) paintSpare(_maintTab.slice(3));
   else if(_maintTab.startsWith("ac:")) paintAC(_maintTab.slice(3));
 }
 
@@ -4008,6 +5777,8 @@ function importMaintWorkbook(input,type){
    AC MONTHLY MAINTENANCE (Single Split + VRF)
 ============================================================ */
 let _acExpanded=false;
+let _spExpanded=false;                 // Spare Parts submenu expanded
+let _spFilter={q:"",campus:"",actype:"",cat:"",priority:"",supplier:"",status:"",delivery:"",replacement:"",responsible:"",from:"",to:"",overdue:false,openonly:false}; // spare-parts request filters
 let _acYear=2026, _acMonth=(new Date().getMonth()+1);
 let _acFilter={campus:"",building:"",type:"",provider:"",technician:"",status:"",q:""};
 let _acVrfOpen=null; // currently expanded VRF outdoor id
@@ -4099,8 +5870,9 @@ function paintACDashboard(host){
     </div>
     <div class="card" style="margin-top:16px"><div class="card-head"><h3>Upcoming & Overdue Alerts</h3></div><div class="card-body">
       ${alerts.length?alerts.map(r=>{const ov=acIsOverdue(r);return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)"><span class="campus-tag" style="background:${ov?'#dc2626':'#d97706'}22;color:${ov?'#dc2626':'#d97706'}">${ov?'Overdue':'Upcoming'}</span><span style="flex:1">${esc(r.assetId||"")} — ${esc(r.campus||"")} ${esc(r.location||"")}</span><span class="muted" style="font-size:12px">${fmtDateUS(ov?r.plannedDate:r.nextDate)}</span></div>`;}).join(""):'<p class="muted">No alerts.</p>'}
-    </div></div>`;
-  setTimeout(drawACCharts,40);
+    </div></div>
+    ${spDashboardSection()}`;
+  setTimeout(()=>{ drawACCharts(); drawSpareCharts(); },40);
 }
 function acPeriodSelector(){
   const years=[]; for(let y=2023;y<=(new Date().getFullYear()+1);y++)years.push(y);
@@ -4162,6 +5934,7 @@ function paintACRegister(host,kind){
       <td>${fmtDateUS(u.lastMaint)}</td><td>${fmtDateUS(u.nextMaint)}</td><td>${esc(u.condition||"—")}</td><td>${acOpTag(u.opStatus)}</td>
       <td><div class="row-actions"><button class="act-btn" onclick="viewACHistory('${u.id}')" title="History"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg></button>
       <button class="act-btn" onclick="openACUnitForm('split','${u.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+      ${spCanEdit()?`<button class="act-btn" onclick="spRequestFromUnit('${u.id}')" title="Request Spare Parts" style="color:var(--primary)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></button>`:""}
       <button class="act-btn del" onclick="deleteACUnit('${u.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td>
     </tr>`).join(""):`<tr><td colspan="13"><div class="empty"><h4>No Single Split AC units</h4><p>Click “Add Single Split AC” to register a unit.</p></div></td></tr>`}</tbody></table></div></div>`;
 }
@@ -4188,11 +5961,12 @@ function paintACVrf(host){
           <button class="btn btn-ghost btn-sm" onclick="openACUnitForm('vrf-in','',{parentId:'${o.id}'})">+ Indoor Unit</button>
           <button class="act-btn" onclick="viewACHistory('${o.id}')" title="History"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg></button>
           <button class="act-btn" onclick="openACUnitForm('vrf-out','${o.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+          ${spCanEdit()?`<button class="act-btn" onclick="spRequestFromUnit('${o.id}')" title="Request Spare Parts" style="color:var(--primary)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></button>`:""}
           <button class="act-btn del" onclick="deleteACUnit('${o.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
         </div>
         ${open?`<div style="margin-top:12px"><div class="table-card"><div class="table-scroll"><table class="data" style="min-width:900px"><thead><tr><th>Indoor ID</th><th>Floor</th><th>Location</th><th>Type</th><th>Brand</th><th>Capacity</th><th>Last/Next</th><th>Condition</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>${indoors.length?indoors.map(u=>`<tr><td><b>${esc(u.assetId||"—")}</b></td><td>${esc(u.floor||"—")}</td><td>${esc(u.location||"—")}</td><td>${esc(u.indoorType||"—")}</td><td>${esc(u.brand||"—")}</td><td>${esc(u.capacity||"—")}</td><td>${fmtDateUS(u.lastMaint)} / ${fmtDateUS(u.nextMaint)}</td><td>${esc(u.condition||"—")}</td><td>${acOpTag(u.opStatus)}</td>
-          <td><div class="row-actions"><button class="act-btn" onclick="viewACHistory('${u.id}')" title="History"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/></svg></button><button class="act-btn" onclick="openACUnitForm('vrf-in','${u.id}')" title="Edit"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button><button class="act-btn del" onclick="deleteACUnit('${u.id}')" title="Delete"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/></svg></button></div></td></tr>`).join(""):`<tr><td colspan="10"><div class="empty" style="padding:18px"><p>No indoor units connected. Click “+ Indoor Unit”.</p></div></td></tr>`}</tbody></table></div></div></div>`:""}
+          <td><div class="row-actions"><button class="act-btn" onclick="viewACHistory('${u.id}')" title="History"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/></svg></button><button class="act-btn" onclick="openACUnitForm('vrf-in','${u.id}')" title="Edit"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>${spCanEdit()?`<button class="act-btn" onclick="spRequestFromUnit('${u.id}')" title="Request Spare Parts" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></button>`:""}<button class="act-btn del" onclick="deleteACUnit('${u.id}')" title="Delete"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/></svg></button></div></td></tr>`).join(""):`<tr><td colspan="10"><div class="empty" style="padding:18px"><p>No indoor units connected. Click “+ Indoor Unit”.</p></div></td></tr>`}</tbody></table></div></div></div>`:""}
       </div></div>`;
     }).join(""):`<div class="empty"><h4>No VRF systems</h4><p>Click “Add VRF Outdoor System” to begin.</p></div>`}`;
 }
@@ -4324,6 +6098,7 @@ function paintACRecords(host,category){
       <td>${r.campus?`<span class="campus-tag ${campusTagClass(r.campus)}">${esc(r.campus)}</span>`:"—"}</td><td>${fmtDateUS(r.plannedDate)}</td><td>${fmtDateUS(r.actualDate)}</td><td>${esc(r.technician||"—")}</td>
       <td class="num">${usdc(acRecordCost(r))}</td><td>${cl}</td><td>${acStatusBadge(st)}</td>
       <td><div class="row-actions"><button class="act-btn" onclick="openACRecordForm('${r.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+      ${spCanEdit()?`<button class="act-btn" onclick="spRequestFromPMEM('${r.id}')" title="Request Spare Parts" style="color:var(--primary)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></button>`:""}
       <button class="act-btn del" onclick="deleteACRecord('${r.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`;
     }).join(""):`<tr><td colspan="12"><div class="empty"><h4>No ${category} records</h4></div></td></tr>`}</tbody></table></div></div>`;
 }
@@ -4377,11 +6152,13 @@ function openACRecordForm(id,unitId,category){
   <div style="margin-top:14px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Preventive Maintenance Checklist (${acType})</div>
     <div id="acChecklistWrap" class="ac-checklist">${checklist.map((item,i)=>{ const c=r?.checklist?.[i]||{}; return `<div class="ac-check-row">
       <div class="ac-check-label">${i+1}. ${esc(item)}</div>
-      <select id="acc_${i}" class="ac-check-sel">${["—","Pass","Fail","N/A"].map(o=>`<option ${(c.result||"—")===o?'selected':''}>${o}</option>`).join("")}</select>
+      <select id="acc_${i}" class="ac-check-sel" onchange="spCheckChecklistRecommendation(${checklist.length})">${["—","Pass","Fail","N/A"].map(o=>`<option ${(c.result||"—")===o?'selected':''}>${o}</option>`).join("")}</select>
       <input id="acc_c_${i}" class="ac-check-comment" placeholder="Comment" value="${esc(c.comment||'')}">
-    </div>`; }).join("")}</div></div>
+    </div>`; }).join("")}</div>
+    <div id="spChecklistRec" style="margin-top:10px"></div></div>
   </div>
-  <div class="modal-foot"><span class="muted" style="margin-right:auto;font-size:12px">Total cost auto-calculated from labor + material + parts + other</span><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveACRecord(${id?`'${id}'`:'null'},${checklist.length})">Save Record</button></div>`,{size:"wide"});
+  <div class="modal-foot">${id&&spCanEdit()?spRequestBtn(`spRequestFromPMEM('${id}')`):""}<span class="muted" style="margin-right:auto;font-size:12px">Total cost auto-calculated from labor + material + parts + other</span><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveACRecord(${id?`'${id}'`:'null'},${checklist.length})">Save Record</button></div>`,{size:"wide"});
+  spCheckChecklistRecommendation(checklist.length);
 }
 function saveACRecord(id,checklistLen){
   const g=n=>{const el=document.getElementById("acr_"+n);return el?el.value:"";};
@@ -4419,6 +6196,7 @@ function paintACCorrective(host){
       <td><b>${esc(c.cmId||"—")}</b></td><td>${fmtDateUS(c.reportedDate)}</td><td>${esc(c.assetId||"—")}</td><td class="ell" title="${esc(c.fault)}">${esc(c.fault||"—")}</td>
       <td>${acPriorityTag(c.priority)}</td><td>${acStageTag(c.stage)}</td><td>${esc(c.technician||"—")}</td><td class="num">${c.repairCost?usdc(c.repairCost):""}</td><td>${fmtDateUS(c.completionDate)}</td>
       <td><div class="row-actions"><button class="act-btn" onclick="openACCorrectiveForm('${c.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+      ${spCanEdit()?`<button class="act-btn" onclick="spRequestFromCM('${c.id}')" title="Request Spare Parts" style="color:var(--primary)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></button>`:""}
       <button class="act-btn del" onclick="deleteACCorrective('${c.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`).join(""):`<tr><td colspan="10"><div class="empty"><h4>No corrective maintenance records</h4><p>Click “Report Breakdown” to log a fault.</p></div></td></tr>`}</tbody></table></div></div>`;
 }
 function acPriorityTag(p){ const c={Low:"#697586",Medium:"#2563eb",High:"#d97706",Critical:"#dc2626"}[p]||"#697586"; return `<span class="campus-tag" style="background:${c}22;color:${c}">${esc(p||"—")}</span>`; }
@@ -4445,7 +6223,7 @@ function openACCorrectiveForm(id){
     <div class="field full"><label>Repair Action</label><input id="cmf_repairAction" value="${esc(c?.repairAction||'')}"></div>
     <div class="field full"><label>Spare Parts Replaced</label><input id="cmf_parts" value="${esc(c?.parts||'')}"></div>
   </div></div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveACCorrective(${id?`'${id}'`:'null'})">Save</button></div>`,{size:"wide"});
+  <div class="modal-foot">${id&&spCanEdit()?spRequestBtn(`spRequestFromCM('${id}')`):""}<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveACCorrective(${id?`'${id}'`:'null'})">Save</button></div>`,{size:"wide"});
 }
 function saveACCorrective(id){
   const g=n=>{const el=document.getElementById("cmf_"+n);return el?el.value:"";};
@@ -5390,6 +7168,12 @@ function exportExcel(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.uniform.map(u=>({Period:u.period,Outlet:u.outlet,BB:Number(u.bb)||0,MoveIn:uniformSum(u,"moveIn"),MoveIn_Entries:uniformArr(u,"moveIn").join(", "),AdjustIn:uniformSum(u,"adjustIn"),AdjustIn_Entries:uniformArr(u,"adjustIn").join(", "),MoveOut:uniformSum(u,"moveOut"),MoveOut_Entries:uniformArr(u,"moveOut").join(", "),SoldOut:uniformSum(u,"soldOut"),SoldOut_Entries:uniformArr(u,"soldOut").join(", "),Free:uniformSum(u,"free"),Free_Entries:uniformArr(u,"free").join(", "),Broken:uniformSum(u,"broken"),Broken_Entries:uniformArr(u,"broken").join(", "),AdjustOut:uniformSum(u,"adjustOut"),AdjustOut_Entries:uniformArr(u,"adjustOut").join(", "),EB:uniformEB(u),Remark:u.remark}))),"UniformStock");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.gepUniform.map(u=>({Period:u.period,Outlet:u.outlet,BB:Number(u.bb)||0,MoveIn:uniformSum(u,"moveIn"),MoveIn_Entries:uniformArr(u,"moveIn").join(", "),AdjustIn:uniformSum(u,"adjustIn"),AdjustIn_Entries:uniformArr(u,"adjustIn").join(", "),MoveOut:uniformSum(u,"moveOut"),MoveOut_Entries:uniformArr(u,"moveOut").join(", "),SoldOut:uniformSum(u,"soldOut"),SoldOut_Entries:uniformArr(u,"soldOut").join(", "),Free:uniformSum(u,"free"),Free_Entries:uniformArr(u,"free").join(", "),Broken:uniformSum(u,"broken"),Broken_Entries:uniformArr(u,"broken").join(", "),AdjustOut:uniformSum(u,"adjustOut"),AdjustOut_Entries:uniformArr(u,"adjustOut").join(", "),EB:uniformEB(u),Remark:u.remark}))),"GEP_Uniform");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.construction.map(p=>({Name:p.name,Code:p.code,Location:p.location,Type:p.type,PM:p.pm,Contractor:p.contractor,Consultant:p.consultant,ContractAmount:p.contractAmount,ApprovedBudget:p.approvedBudget,StartDate:p.startDate,PlannedEnd:p.plannedEnd,ActualEnd:p.actualEnd,Progress:p.progress,PlannedProgress:p.plannedProgress,Status:p.status,Stage:p.stage,Priority:p.priority,Description:p.description}))),"Construction");
+  // ---- AC Spare Parts module datasets ----
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((DB.acSpareRequests||[]).map(r=>({RequestID:r.reqNo,Date:r.requestDate,Priority:r.priority,Campus:r.campus,AssetID:r.assetId,ACType:r.acType,Fault:r.faultDescription,Parts:(r.lines||[]).length,EstCost:(r.lines||[]).reduce((s,li)=>s+(Number(li.qtyRequested)||0)*(Number(li.estUnitPrice)||0),0),ActCost:(r.lines||[]).reduce((s,li)=>s+(Number(li.qtyOrdered)||0)*(Number(li.actUnitPrice)||0),0),ApprovedPR:r.prNumber||"",Supplier:r.selectedSupplier||r.proposedSupplier||"",PONumber:r.poNumber||"",Status:r.status,Responsible:r.responsible||""}))),"SpareRequests");
+  const spLineRows=[]; (DB.acSpareRequests||[]).forEach(r=>(r.lines||[]).forEach(li=>spLineRows.push({RequestID:r.reqNo,Part:li.partName,PartNo:li.partNumber,UoM:li.uom,QtyReq:li.qtyRequested,QtyOrd:li.qtyOrdered,QtyRec:li.qtyReceived,QtyInst:li.qtyInstalled,EstUnit:li.estUnitPrice,ActUnit:li.actUnitPrice,Supplier:li.selectedSupplier||li.proposedSupplier||""})));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(spLineRows.length?spLineRows:[{RequestID:""}]),"SpareLineItems");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((DB.acSpareReceipts||[]).map(r=>({RequestID:r.reqNo||"",Date:r.receivingDate,PO:r.poNumber,Supplier:r.supplier,Part:r.partName,Ordered:r.orderedQty,Received:r.currentReceived,Accepted:r.acceptedQty,Rejected:r.rejectedQty,ReceivedBy:r.receivedBy}))),"SpareReceipts");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((DB.acReplacementRecords||[]).map(x=>({Date:x.replacementDate,RequestID:x.reqNo||"",AssetID:x.assetId,NewPart:x.newPartName,Qty:x.qtyInstalled,Technician:x.technician,TestResult:x.testResult,ReturnedToService:x.returnedToService}))),"Replacements");
   XLSX.writeFile(wb,`pmpts-backup-${new Date().toISOString().slice(0,10)}.xlsx`);
   toast("Excel exported","Workbook downloaded","ok");
 }
