@@ -2169,6 +2169,11 @@ function renderSettings(){
         <div class="field full"><label>App Link <span class="muted" style="font-weight:400;font-size:11px">(optional — added to alerts so approvers can tap through)</span></label><input id="set_appUrl" value="${esc(DB.settings.appUrl||'')}" placeholder="e.g. https://bnporbiz-lab.github.io/wis-procurement/"></div>
       </div>
       <p class="muted" style="font-size:11.5px;margin:10px 2px 0"><b>Fallback Chat ID</b> is used only when an approver has no personal Chat ID on their account.</p>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+        <div style="font-weight:700;font-size:12.5px;margin-bottom:8px">Who gets a Telegram alert</div>
+        <label style="display:flex;align-items:flex-start;gap:9px;font-size:12.5px;cursor:pointer;margin-bottom:9px"><input type="checkbox" id="set_tgNotifyApprover" ${DB.settings.tgNotifyApprover?'checked':''} style="width:auto;margin-top:2px"><span>Ping the <b>approver</b> when a PO is submitted to them.<br><span class="muted" style="font-size:11px">Leave OFF to keep their phone quiet — they'll still see the in-app bell &amp; red count.</span></span></label>
+        <label style="display:flex;align-items:flex-start;gap:9px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="set_tgNotifySubmitter" ${DB.settings.tgNotifySubmitter!==false?'checked':''} style="width:auto;margin-top:2px"><span>Ping the <b>submitter</b> when their PO is approved or rejected.<br><span class="muted" style="font-size:11px">Sent only to that person's own Chat ID (never the channel).</span></span></label>
+      </div>
       <div style="display:flex;gap:8px;margin-top:14px">
         <button class="btn btn-primary" onclick="saveTelegramSettings()">Save Telegram Settings</button>
         <button class="btn btn-ghost" onclick="testTelegram()">Send Test Message</button>
@@ -2267,6 +2272,8 @@ function saveTelegramSettings(){
   DB.settings.tgChat=document.getElementById("set_tgChat").value.trim();
   DB.settings.tgCaption=document.getElementById("set_tgCaption").value.trim()||"Purchase Order for your approval";
   const appUrlEl=document.getElementById("set_appUrl"); if(appUrlEl) DB.settings.appUrl=appUrlEl.value.trim();
+  const nAppr=document.getElementById("set_tgNotifyApprover"); if(nAppr) DB.settings.tgNotifyApprover=nAppr.checked;
+  const nSub=document.getElementById("set_tgNotifySubmitter"); if(nSub) DB.settings.tgNotifySubmitter=nSub.checked;
   saveDB(); toast("Telegram settings saved","","ok");
 }
 async function testTelegram(){
@@ -3321,7 +3328,7 @@ function poSubmitForApproval(id){
   const def=DB.settings.defaultApproverId && others.some(u=>u.id===DB.settings.defaultApproverId) ? DB.settings.defaultApproverId : others[0].id;
   openModal(`<div class="modal-head"><h3>Submit PO for Approval</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body">
-    <p class="muted" style="font-size:12.5px;margin:0 0 14px">This sends <b>${esc(p.poNo)}</b> (${money(p.amount)}) to the selected person's account. They'll get an in-app notification${(DB.settings.tgToken||"").trim()?" and a Telegram alert on their phone":""} that a PO needs their approval.</p>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">This sends <b>${esc(p.poNo)}</b> (${money(p.amount)}) to the selected person's account. They'll see it via the in-app notification bell${((DB.settings.tgToken||"").trim() && DB.settings.tgNotifyApprover)?" and a Telegram alert on their phone":""}.</p>
     <div class="field"><label class="req">Send to (approver)</label><select id="po_appr_select">${others.map(u=>`<option value="${esc(u.id)}" ${u.id===def?'selected':''}>${esc(u.name)}${u.role==="superadmin"?" (Super Admin)":""}</option>`).join("")}</select></div>
     <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="po_appr_default" checked style="width:auto"> Remember this person as my default approver</label>
   </div>
@@ -3344,8 +3351,8 @@ function poDoSubmit(id){
   if(DB.settings.prepSig) applySavedSig_quiet(id,"prepared");
   p.status="Pending Approval"; p.issuedAt=Date.now();
   saveDB(); closeModal(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
-  toast("Submitted for approval","Sent to "+approver.name+" — they'll be notified","ok",5000);
-  poNotifyApproverTelegram(p, approver);
+  toast("Submitted for approval","Sent to "+approver.name+" — they'll see it in the app","ok",5000);
+  if(DB.settings.tgNotifyApprover) poNotifyApproverTelegram(p, approver);
 }
 
 // --- approve ---
@@ -3362,7 +3369,7 @@ function poApproveRouted(id){
     p.status="Approved"; p.approvedAt=Date.now();
     saveDB(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
     toast("Purchase order approved","","ok");
-    poNotifySubmitterTelegram(p);
+    if(DB.settings.tgNotifySubmitter!==false) poNotifySubmitterTelegram(p);
   },"Approve",false);
 }
 
@@ -3384,7 +3391,7 @@ function poDoReject(id){
   p.status="Draft";
   saveDB(); closeModal(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
   toast("Purchase order rejected","Returned to "+(a.submittedByName||"preparer"),"ok");
-  poNotifySubmitterTelegram(p);
+  if(DB.settings.tgNotifySubmitter!==false) poNotifySubmitterTelegram(p);
 }
 
 // --- Telegram notifications for the approval workflow ---
