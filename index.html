@@ -75,6 +75,15 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .nav-item .badge.badge-alert{background:#dc2626;color:#fff;margin-left:6px;animation:badgePulse 2s ease-in-out infinite}
 .nav-item.active .badge.badge-alert{background:#fff;color:#dc2626}
 @keyframes badgePulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.5)}50%{box-shadow:0 0 0 4px rgba(220,38,38,0)}}
+/* Approver (view-only) role: hide every create / edit / delete affordance in the main content area.
+   Modal actions (#modalRoot) are unaffected, so Approve / Reject stay available. */
+body.role-viewer #content .btn-primary,
+body.role-viewer #content .act-btn[title="Edit"],
+body.role-viewer #content .act-btn[title="Delete"],
+body.role-viewer #content .act-btn.del,
+body.role-viewer #content .act-btn[title="Submit"]{ display:none !important; }
+body.role-viewer #content .row-status-sel{ pointer-events:none; opacity:.6 }
+body.role-viewer .viewonly-hide{ display:none !important; }
 .sidebar-foot{padding:12px;border-top:1px solid var(--border)}
 .user-chip{display:flex;align-items:center;gap:10px;padding:8px;border-radius:9px}
 .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--accent));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
@@ -947,6 +956,7 @@ const RECORD_SETS = {procurement:"procurement", projects:"projects", maintenance
 let SESSION = null;
 function currentUser(){ return SESSION; }
 function isSuper(){ return SESSION && SESSION.role==="superadmin"; }
+function isViewer(){ return !!(SESSION && SESSION.role==="viewer"); }
 
 function doLogin(){
   const u=document.getElementById("loginUser").value.trim();
@@ -962,6 +972,7 @@ function doLogin(){
 }
 function doLogout(){
   localStorage.removeItem(SESSION_KEY); SESSION=null;
+  document.body.classList.remove("role-viewer");
   document.getElementById("app").classList.add("hidden");
   document.getElementById("loginScreen").classList.remove("hidden");
   document.getElementById("loginPass").value="";
@@ -972,7 +983,8 @@ function enterApp(){
   const initials=SESSION.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   document.getElementById("sideAvatar").textContent=initials;
   document.getElementById("sideUserName").textContent=SESSION.name;
-  document.getElementById("sideUserRole").textContent=SESSION.role==="superadmin"?"Super Administrator":"Administrator";
+  document.getElementById("sideUserRole").textContent=SESSION.role==="superadmin"?"Super Administrator":(SESSION.role==="viewer"?"Approver (view only)":"Administrator");
+  document.body.classList.toggle("role-viewer", isViewer());
   buildNav();
   navigate("dashboard");
   // Start Google Sheet sync if configured: pull latest, then begin auto-refresh
@@ -2096,7 +2108,7 @@ function openUserForm(uid_){
     <div class="field"><label class="req">User ID</label><input id="u_id" value="${esc(u?.id||'')}" ${u?'disabled':''}></div>
     <div class="field"><label class="req">Full Name</label><input id="u_name" value="${esc(u?.name||'')}"></div>
     <div class="field"><label class="${u?'':'req'}">Password ${u?'(leave blank to keep)':''}</label><input type="text" id="u_pass" value=""></div>
-    <div class="field"><label>Role</label><select id="u_role" ${isSelf?'disabled':''}><option value="admin" ${u?.role==="admin"?'selected':''}>Administrator</option><option value="superadmin" ${u?.role==="superadmin"?'selected':''}>Super Administrator</option></select></div>
+    <div class="field"><label>Role</label><select id="u_role" ${isSelf?'disabled':''}><option value="admin" ${u?.role==="admin"?'selected':''}>Administrator</option><option value="superadmin" ${u?.role==="superadmin"?'selected':''}>Super Administrator</option><option value="viewer" ${u?.role==="viewer"?'selected':''}>Approver (view + approve only)</option></select></div>
     <div class="field"><label>Title / Position <span class="muted" style="font-weight:400;font-size:11px">(optional)</span></label><input id="u_title" value="${esc(u?.title||'')}" placeholder="e.g. V.P. Operations"></div>
     <div class="field"><label>Telegram Chat ID <span class="muted" style="font-weight:400;font-size:11px">(optional — for approval alerts)</span></label><input id="u_tgchat" value="${esc(u?.tgChatId||'')}" placeholder="e.g. 123456789"></div>
   </div>
@@ -2383,6 +2395,7 @@ function paintPO(){
       const att=(p.files&&p.files.length)?`<span class="att-pill" onclick="previewFile('po','${p.id}',0)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>${p.files.length} file(s)</span>`:'<span class="muted">—</span>';
       return `<tr><td><b>${esc(p.poNo)}</b></td><td>${esc(p.supplier)||'<span class="muted">—</span>'}</td><td>${p.campus?`<span class="campus-tag ${campusTagClass(p.campus)}">${esc(p.campus)}</span>`:'<span class="muted">—</span>'}</td><td>${esc(p.pr)||'<span class="muted">—</span>'}</td><td><span class="chip-cat">${(p.items||[]).length} line(s)</span></td><td><b>${money(p.amount)}</b></td><td><span class="status ${poStatusClass(p.status)}">${esc(p.status)}</span></td><td>${fmtDate(p.orderDate)}</td><td>${fmtDate(p.delivery)}</td><td>${att}</td>
       <td><div class="row-actions">
+        ${(function(){ const st=(typeof poApprState==="function")?poApprState(p):"draft"; return (st==="draft"||st==="rejected")?`<button class="act-btn" title="Submit" style="color:#2563eb" onclick="poSubmitForApproval('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>`:(st==="pending"?`<span class="chip-cat" title="Awaiting approval" style="background:#d9770622;color:#b45309">Pending approval</span>`:""); })()}
         <button class="act-btn" title="View" onclick="viewPO('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         <button class="act-btn" title="Edit" onclick="openPOForm('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
         <button class="act-btn" title="PDF" onclick="downloadPOPdf('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
@@ -3016,7 +3029,7 @@ function paintACTasks(){
       <td>${esc(t.pr||"")||'<span class="muted">—</span>'}</td>
       <td>${esc(t.quote||"")||'<span class="muted">—</span>'}</td>
       <td class="num">${(Number(t.budget)||0)?acTaskMoney(t.budget):'<span class="muted">—</span>'}</td>
-      <td><select class="filter-sel" style="padding:4px 8px;font-size:12px;min-width:140px;border-left:3px solid ${acTaskStatusColor(t.status)}" onchange="acTaskSetStatus('${t.id}',this.value)">${ACTASK_STATUSES.map(s=>`<option value="${s}" ${(t.status||"")===s?'selected':''}>${s||"—"}</option>`).join("")}</select></td>
+      <td><select class="filter-sel row-status-sel" style="padding:4px 8px;font-size:12px;min-width:140px;border-left:3px solid ${acTaskStatusColor(t.status)}" onchange="acTaskSetStatus('${t.id}',this.value)">${ACTASK_STATUSES.map(s=>`<option value="${s}" ${(t.status||"")===s?'selected':''}>${s||"—"}</option>`).join("")}</select></td>
       <td>${t.invoiceDate?fmtDateUS(t.invoiceDate):'<span class="muted">—</span>'}</td>
       <td>${esc(t.invoiceNo||"")||'<span class="muted">—</span>'}</td>
       <td style="font-size:12.5px;color:var(--text-dim)">${esc(t.notes||"")||'<span class="muted">—</span>'}</td>
@@ -3298,18 +3311,18 @@ function poApprovalActionsHTML(p,id){
   const st=a?a.state:"draft";
   let btns="";
   if(st==="draft"||st==="rejected"){
-    btns+=`<button class="btn btn-primary" onclick="poSubmitForApproval('${id}')">${st==="rejected"?"Revise &amp; Resubmit":"Submit for Approval"}</button>`;
+    if(!isViewer()) btns+=`<button class="btn btn-primary" onclick="poSubmitForApproval('${id}')">${st==="rejected"?"Revise &amp; Resubmit":"Submit for Approval"}</button>`;
   } else if(st==="pending"){
     if(poCanDecide(p)){
       btns+=`<button class="btn btn-ghost" style="color:#dc2626" onclick="poRejectRouted('${id}')">Reject</button>`;
       btns+=`<button class="btn btn-primary" onclick="poApproveRouted('${id}')">Approve</button>`;
-    } else if(poIsMySubmission(p)){
+    } else if(poIsMySubmission(p) && !isViewer()){
       btns+=`<span class="muted" style="font-size:12px;margin-right:auto">Awaiting approval by ${esc(a.approverName||"approver")}</span><button class="btn btn-ghost" onclick="poRecall('${id}')">Recall</button>`;
     } else {
       btns+=`<span class="muted" style="font-size:12px">Awaiting approval by ${esc(a.approverName||"approver")}</span>`;
     }
   } else if(st==="approved"){
-    btns+=`<button class="btn btn-primary" onclick="issueAndSendPO('${id}')">Issue &amp; Send</button>`;
+    if(!isViewer()) btns+=`<button class="btn btn-primary" onclick="issueAndSendPO('${id}')">Issue &amp; Send</button>`;
   }
   return btns;
 }
@@ -7855,6 +7868,61 @@ function globalSearchHandler(q){
   else if(CURRENT==="purchaseorder"){ _poFilter.q=q||""; const pq=document.getElementById("poQ"); if(pq)pq.value=q||""; paintPO(); }
   else if(CURRENT==="stock"){ _stockFilter.q=q||""; const stq=document.getElementById("stkQ"); if(stq)stq.value=q||""; paintStock(); }
 }
+
+/* ============================================================
+   VIEW-ONLY (APPROVER) ENFORCEMENT
+   Wrap every create/edit/delete entry point so an "viewer"/Approver
+   account cannot change data. Approve/Reject (poApproveRouted /
+   poRejectRouted / poDoReject) and saveDB are deliberately excluded
+   so approvals still work. This is the data-safety layer that backs
+   up the hidden buttons.
+============================================================ */
+(function installViewerGuards(){
+  var guarded=[
+    // procurement / generic records
+    "openRecordForm","saveRecord","deleteRecord","openRecordTabForm","saveRecordTab","deleteRecordTab",
+    // purchase orders (create/edit/delete + submit/recall — but NOT approve/reject)
+    "openPOForm","savePO","deletePO","createPOFromRecord","poSubmitForApproval","poDoSubmit","poRecall",
+    // stock
+    "openStockForm","saveStock","deleteStock",
+    // suppliers
+    "openSupplierForm","saveSupplier","deleteSupplier",
+    // budget
+    "openBudgetForm","saveBudget","deleteBudget","saveConBudget",
+    // construction / projects
+    "openConstructionForm","saveConstruction","deleteConstruction","openWBSForm","saveWBS","deleteWBS","saveProgressEntry",
+    // maintenance
+    "openMaintRecordForm","saveMaintRecord","deleteMaintRecord","saveMaintPrice","saveApproval",
+    // AC units / records / corrective
+    "openACUnitForm","saveACUnit","deleteACUnit","openACRecordForm","saveACRecord","deleteACRecord","openACCorrectiveForm","saveACCorrective","deleteACCorrective",
+    // AC task tracker
+    "openACTaskForm","saveACTask","deleteACTask","acTaskSetStatus","acTaskSeedSample",
+    // uniform
+    "openUniformForm","saveUniform","deleteUniform","importUniformExcel",
+    // procurement lists / teams
+    "openProcListForm","saveProcList","deleteProcList","restoreProcList","openTeamForm","saveTeam","deleteTeam",
+    // users
+    "openUserForm","saveUser","deleteUser",
+    // settings & signatures
+    "saveSettings","saveSyncSettings","saveTelegramSettings","saveSigSettings","saveSignPad","removeSign",
+    // spare parts lifecycle
+    "spOpenRequestForm","spSaveRequest","spDeleteRequest","spOpenReceiveForm","spSaveReceipt","spOpenInstallForm","spSaveInstall","spCreateProcurement","spDoCreatePO","spCreatePOFromRequest","spCloseRequest","spEditProcurement","spSavePRNumber","spRequestFromCM","spRequestFromPMEM","spRequestFromUnit","spRequestFromChecklist",
+    // backup restore / imports (destructive)
+    "importJSON","importExcel","importMaintWorkbook"
+  ];
+  guarded.forEach(function(name){
+    var fn=window[name];
+    if(typeof fn==="function"){
+      window[name]=function(){
+        if(typeof isViewer==="function" && isViewer()){
+          if(typeof toast==="function") toast("View-only account","This account can view and approve purchase orders, but can't add, edit, or delete.","err",5000);
+          return;
+        }
+        return fn.apply(this, arguments);
+      };
+    }
+  });
+})();
 
 /* ============================================================
    INIT
