@@ -75,6 +75,100 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .nav-item svg{flex-shrink:0}
 .nav-item .badge{margin-left:auto;background:var(--surface-2);color:var(--text-dim);font-size:11px;padding:1px 7px;border-radius:10px;font-weight:600}
 .nav-item.active .badge{background:var(--primary);color:#fff}
+/* ===== Procurement Control Center ===== */
+.pcc{max-width:100%}
+.pcc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.pcc-title{margin:0;font-size:21px;font-weight:800;letter-spacing:-.3px}
+.pcc-sub{margin:3px 0 0;font-size:12.5px;color:var(--text-dim)}
+.pcc-head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pcc-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px}
+.pcc-kpi{text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:12px 14px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.pcc-kpi:hover{border-color:var(--primary);box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.pcc-kpi.on{border-color:var(--primary);box-shadow:0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent)}
+.pcc-kpi-val{font-size:21px;font-weight:800;line-height:1.1}
+.pcc-kpi-lbl{font-size:11.5px;color:var(--text-dim);margin-top:3px;font-weight:600}
+.pcc-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:14px;overflow-x:auto}
+.pcc-tab{background:none;border:none;border-bottom:2px solid transparent;padding:9px 14px;font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:7px}
+.pcc-tab:hover{color:var(--text)}
+.pcc-tab.on{color:var(--primary);border-bottom-color:var(--primary)}
+.pcc-tab-n{background:var(--surface-2);border-radius:20px;padding:1px 7px;font-size:11px;font-weight:700}
+.pcc-tab.on .pcc-tab-n{background:color-mix(in srgb, var(--primary) 15%, transparent);color:var(--primary)}
+.pcc-filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.pcc-inp{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:7px 10px;font-size:12.5px;color:var(--text);min-width:130px;font-family:inherit}
+.pcc-inp:focus{outline:none;border-color:var(--primary)}
+.pcc-viewtoggle{display:inline-flex;background:var(--surface-2);border-radius:8px;padding:3px;gap:3px;margin-left:auto}
+.pcc-viewtoggle button{border:none;background:none;padding:5px 13px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-dim)}
+.pcc-viewtoggle button.on{background:var(--primary);color:#fff}
+.pcc-quick{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+.pcc-chip{border:1px solid var(--border);background:var(--surface);border-radius:20px;padding:5px 12px;font-size:11.5px;font-weight:600;color:var(--text-dim);cursor:pointer}
+.pcc-chip:hover{border-color:var(--primary);color:var(--primary)}
+.pcc-chip.on{background:var(--primary);color:#fff;border-color:var(--primary)}
+.pcc-chip.saved{border-style:dashed}
+.pcc-tablewrap{border:1px solid var(--border);border-radius:11px;overflow:auto;background:var(--surface);max-height:66vh}
+.pcc-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;min-width:900px}
+.pcc-table th{position:sticky;top:0;z-index:3;background:var(--surface-2);text-align:left;padding:10px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);border-bottom:1px solid var(--border);white-space:nowrap}
+.pcc-table td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.pcc-table tbody tr{cursor:pointer}
+.pcc-table tbody tr:hover td{background:var(--surface-2)}
+.pcc-table .num{text-align:right}
+.pcc-table th.frz,.pcc-table td.frz{position:sticky;background:var(--surface);z-index:2}
+.pcc-table th.frz{z-index:4;background:var(--surface-2)}
+.pcc-table .frz1{left:0;min-width:130px}
+.pcc-table .frz2{left:130px;min-width:200px;box-shadow:1px 0 0 var(--border)}
+.pcc-table tbody tr:hover td.frz{background:var(--surface-2)}
+.pcc-name{font-weight:600}
+.pcc-soft{background:var(--surface-2);border-radius:6px;padding:2px 8px;font-size:11.5px;color:var(--text-dim);white-space:nowrap}
+.pcc-stage{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12px;white-space:nowrap}
+.pcc-stage i{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+.pcc-dot-od{display:inline-block;width:7px;height:7px;border-radius:50%;background:#dc2626}
+.pcc-ell{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.pcc-actcol{width:1%;white-space:nowrap}
+.pcc-foot{padding:10px 4px;font-size:12px;color:var(--text-dim);font-weight:600}
+.pcc-cards{display:none}
+/* Board */
+.pcc-board{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px}
+.pcc-col{flex:0 0 250px;background:var(--surface-2);border-radius:11px;padding:10px;min-height:120px}
+.pcc-col.over{outline:2px dashed var(--primary)}
+.pcc-col-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.pcc-col-n{font-size:11px;font-weight:700;color:var(--text-dim)}
+.pcc-col-body{display:flex;flex-direction:column;gap:8px}
+.pcc-col-empty{text-align:center;color:var(--text-dim);font-size:12px;padding:10px}
+.pcc-bcard{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:10px;cursor:pointer}
+.pcc-bcard:hover{border-color:var(--primary)}
+.pcc-bcard-id{font-size:10.5px;font-weight:700;color:var(--text-dim);letter-spacing:.3px}
+.pcc-bcard-name{font-size:12.5px;font-weight:600;margin:3px 0 6px}
+.pcc-bcard-foot{display:flex;justify-content:space-between;font-size:11.5px}
+/* Drawer */
+.pcc-drawer{position:fixed;top:0;right:0;height:100vh;width:440px;max-width:92vw;background:var(--surface);border-left:1px solid var(--border);box-shadow:-8px 0 30px rgba(0,0,0,.13);z-index:200;transform:translateX(105%);transition:transform .22s ease;display:flex;flex-direction:column}
+.pcc-drawer.open{transform:translateX(0)}
+.pcc-drawer-bd{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:199;opacity:0;pointer-events:none;transition:opacity .2s}
+.pcc-drawer-bd.open{opacity:1;pointer-events:auto}
+.pcc-drawer-head{display:flex;justify-content:space-between;gap:10px;padding:16px 18px;border-bottom:1px solid var(--border)}
+.pcc-drawer-body{flex:1;overflow-y:auto;padding:16px 18px}
+.pcc-drawer-foot{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:12px 18px;border-top:1px solid var(--border)}
+.pcc-sec{margin-bottom:18px}
+.pcc-sec h4{margin:0 0 8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)}
+.pcc-dr{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.pcc-dr>span{color:var(--text-dim)}
+.pcc-dr>b{text-align:right}
+.pcc-mini{width:100%;border-collapse:collapse;font-size:12px}
+.pcc-mini th,.pcc-mini td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left}
+.pcc-mini .num{text-align:right}
+.pcc-file{font-size:12.5px;padding:6px 0;cursor:pointer;color:var(--primary)}
+.pcc-hist{display:flex;flex-direction:column;font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)}
+@media(max-width:1100px){ .pcc-kpis{grid-template-columns:repeat(3,1fr)} }
+@media(max-width:820px){
+  .pcc-kpis{grid-template-columns:repeat(2,1fr)}
+  .pcc-tablewrap{display:none}
+  .pcc-cards{display:grid;grid-template-columns:1fr;gap:9px}
+  .pcc-card{border:1px solid var(--border);border-radius:11px;background:var(--surface);padding:12px;cursor:pointer}
+  .pcc-card-top{display:flex;justify-content:space-between;align-items:center;font-size:11.5px}
+  .pcc-card-name{font-weight:700;font-size:13.5px;margin:6px 0 4px}
+  .pcc-card-meta{display:flex;gap:10px;font-size:11.5px;color:var(--text-dim)}
+  .pcc-card-foot{display:flex;justify-content:space-between;margin-top:8px;font-size:12.5px}
+  .pcc-card-foot .od{color:#dc2626;font-weight:600}
+  .pcc-viewtoggle{margin-left:0}
+}
 .nav-item .badge.badge-alert{background:#dc2626;color:#fff;margin-left:6px;animation:badgePulse 2s ease-in-out infinite}
 .nav-item.active .badge.badge-alert{background:#fff;color:#dc2626}
 @keyframes badgePulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.5)}50%{box-shadow:0 0 0 4px rgba(220,38,38,0)}}
@@ -476,7 +570,7 @@ body.dark .sp-rec-banner{background:#3a2f12;border-color:#78621f}
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-head">
       <div class="logo" style="background:#fff;padding:3px"><img src="data:image/png;base64,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6+Y73/soTc21/L9vfIAr3/lV9uzpJBZz2friHr72lZ+xbNlsHn1kPf/904epqakodAgNMeJ8esGc997/wrYbnxhPToybXTx79ntac5WJn4q4F6oOtIdEhIqKBN///q/Zt68LgNe/4Qyqq1OoKlVVSe67dw1/3BEdfT35lAWF16LldObMZioqk/z8Z49QWZnEGEM8HiOXizLV83kfREil4iQSMVzX4T+/eQe/vP0J6uqqmDGjieUrjyMMlfqGasLQ4hbsseu/+jO2b99HKhnHquWfvvAT9uzporIySSoVH2B7BX5IKpWgsjLJ3j2dfOkLPyHwQ+LxyF7LF5bqbM4jkYiTTMZJJGN0dqb51Ce+R6YvV1jCXfJeQD4XyXZdh3giRiqV4OmntpTGO2HVvFKb2aqqJI89up4tm6PsrPkLpvEv//YXVFWmovfjOriuw9ate2hr6yaZjJc15VEQqRFjfjJ//tWrRv3hHwZjTsD58z+SWDjvmrcmHPchEedSPUTcz3EMu3e289MfPwTASSfN56STF+D7URPpvr4cvb1RhtSKlccxb95UgiDE80JeceZSntuwgz27Owe06rKFzf8gsISBks8HLFk6i7POXoZV5V//+X/Zsycqeur7AdXVKb71nY/w9neeV+hLp+zZ3cE/X38riWScn/zoIR59dAOpVFT2RUTIZvuLZoVh/xcrmYrz2KMbuOkH95JIxlAo2alePig5Dm944xm0ttazdete/v0bt5e6NdnQEpZl+ahGzta0aY2lvz23YQfW9nd88v2Q7dv28fyGHQCcdvpivvSV90bybFmzb/fghU/VImLmGCv3LJh79VVw+biEZkadgEuXfrBqwYJrT1gw9+pLF869+gvG9j0hyE9EZOGhyFdELO7yPz/9Ld1dfRjH8PZ3nIdq5MGdsGougR/S25shmYxz8SUnEbVZhfPOX8k9dz95UJ+4cohATU0FH/v4ZTQ0VKM28gBEYMeONn7/RJR/On/+NK7/5/dxx13/l//41oc4+5zlZLNewekIDmrlVWxuOPiYkUc72FxQ5cQT53P1tZeU2s0eqlOTFrp2Ll8+hw995HUA/P6JjdzwnbuJxdwyuUIQhlz3dzez5ulIU7729afx2b99G0EQNe52XafUePvgcUJEpNmIuXHB3JoHF8y9+qqFs649bunSy8es0NKoEzDIZc82Vlcb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" style="width:100%;height:100%;object-fit:contain" alt="WIS"></div>
-      <div class="ttl">Procurement<span>and Project Management System</span><span class="app-ver" id="appVer" onclick="openChangelog()" title="View version history">v3.0</span></div>
+      <div class="ttl">Procurement<span>and Project Management System</span><span class="app-ver" id="appVer" onclick="openChangelog()" title="View version history">v3.1</span></div>
     </div>
     <nav class="nav" id="navMenu"></nav>
     <div class="sidebar-foot">
@@ -514,7 +608,7 @@ body.dark .sp-rec-banner{background:#3a2f12;border-color:#78621f}
         <div id="notifPanel" class="notif-panel" style="display:none"></div>
         <button class="icon-btn" onclick="toggleTheme()" id="themeBtn" title="Toggle theme"></button>
         <span id="syncBadge" onclick="syncNow()" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid #64748b55;background:#64748b22;color:#64748b;cursor:pointer;white-space:nowrap" title="Click to sync now"><span class="sync-dot" style="width:7px;height:7px;border-radius:50%;background:#64748b;display:inline-block"></span><span class="sync-label">Local only</span></span>
-        <span id="verBadge" style="font-size:10.5px;font-weight:800;color:#fff;background:var(--accent);padding:3px 9px;border-radius:7px;white-space:nowrap;cursor:pointer" onclick="openChangelog()" title="Build version — click for version history. If you don't see this badge, you are running an old cached file">v3.0 · scroll✓</span>
+        <span id="verBadge" style="font-size:10.5px;font-weight:800;color:#fff;background:var(--accent);padding:3px 9px;border-radius:7px;white-space:nowrap;cursor:pointer" onclick="openChangelog()" title="Build version — click for version history. If you don't see this badge, you are running an old cached file">v3.1 · scroll✓</span>
       </div>
     </header>
     <div class="content" id="content"></div>
@@ -670,7 +764,9 @@ function latestUniformPeriod(){
 }
 function prevPeriod(period){ let [y,m]=period.split("-").map(Number); m--; if(m<1){m=12;y--;} return y+"-"+String(m).padStart(2,"0"); }
 const PROC_STATUSES = ["To Do","Requesting Quotation","Quotation Received","Pending Approval","Approved","In Progress","Ordered","Partially Delivered","Delivered","Completed","On Hold","Cancelled"];
-// Default procurement lists (ClickUp-style). Created on first load if none exist.
+
+// New canonical workflow stages first, then any legacy status still present in the data (never lose an existing value).
+function procStatusOptions(){ const canon=(typeof PROC_STAGE_DEFS!=="undefined")?PROC_STAGE_DEFS.map(d=>d.id):[]; const used=[...new Set((DB.procurement||[]).map(r=>r.status).filter(Boolean))]; return [...canon, ...used.filter(s=>!canon.includes(s))]; }// Default procurement lists (ClickUp-style). Created on first load if none exist.
 const PROC_DEFAULT_LISTS = ["Overseas Procurement","WESTEC Routine Service","Event","Electrical Transformer","WESTEC WU KPC","WESTEC Generals","WESTEC BTB4","WESTEC BCH (RENO)","WESTEC CKD II","School Uniform Request","TB & LK","Other PR"];
 let _procListId="all";      // currently selected list ("all" = All Procurement)
 let _procListsExpanded=true; // sidebar expand state
@@ -1030,8 +1126,14 @@ function isSuper(){ return SESSION && SESSION.role==="superadmin"; }
 function isViewer(){ return !!(SESSION && SESSION.role==="viewer"); }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v3.0";
+const APP_VERSION = "v3.1";
 const CHANGELOG = [
+  { v:"v3.1", date:"Aug 2026", notes:[
+    "Redesigned Procurement page into a Procurement Control Center",
+    "Clickable KPI cards, workflow tabs, one clean table with frozen ID/Item columns",
+    "Column Settings, saved views, quick views and a right-side record detail drawer",
+    "Board view with drag-and-drop stage changes; mobile record cards"
+  ]},
   { v:"v3.0", date:"Aug 2026", notes:[
     "Fixed the full records cache — signature images were being copied into every PO (72 duplicates)",
     "Signatures now stored once and referenced, freeing several MB",
@@ -1447,51 +1549,405 @@ function renderRecords(set){
   paintTable(set);
 }
 let _procView="list", _procFilter2={list:"",supplier:"",responsible:""}, _pendingProcCat=null;
+/* ============================================================
+   PROCUREMENT CONTROL CENTER  (redesigned UI — data model unchanged)
+   Interface-only redesign: every existing record, field, calculation,
+   permission, attachment and Google-Sheet sync path is preserved.
+============================================================ */
+
+/* ---- Workflow stages (canonical) + legacy status mapping ----
+   Stored r.status is NEVER rewritten. Legacy values are mapped only for
+   grouping/colouring so old records slot into the new workflow cleanly. */
+const PROC_STAGE_DEFS = [
+  {id:"Requesting Quotation", tab:"rfq",        color:"#2563eb"},
+  {id:"Quotation Received",   tab:"rfq",        color:"#2563eb"},
+  {id:"Under Evaluation",     tab:"evaluation", color:"#2563eb"},
+  {id:"Pending Approval",     tab:"approval",   color:"#d97706"},
+  {id:"Approved",             tab:"approval",   color:"#7c3aed"},
+  {id:"PO Issued",            tab:"po",         color:"#7c3aed"},
+  {id:"In Production",        tab:"po",         color:"#ea580c"},
+  {id:"In Transit",           tab:"delivery",   color:"#ea580c"},
+  {id:"Partially Received",   tab:"delivery",   color:"#ea580c"},
+  {id:"Fully Received",       tab:"delivery",   color:"#059669"},
+  {id:"Completed",            tab:"completed",  color:"#059669"},
+  {id:"Cancelled",            tab:"completed",  color:"#dc2626"}
+];
+const PROC_LEGACY_STAGE = {"To Do":"Requesting Quotation","In Progress":"In Production","Ordered":"PO Issued","Partially Delivered":"Partially Received","Delivered":"Fully Received","On Hold":"Pending Approval"};
+const PROC_TABS = [
+  {id:"all",        label:"All Records"},
+  {id:"rfq",        label:"RFQ"},
+  {id:"evaluation", label:"Evaluation"},
+  {id:"approval",   label:"Approval"},
+  {id:"po",         label:"Purchase Order"},
+  {id:"delivery",   label:"Delivery"},
+  {id:"completed",  label:"Completed"}
+];
+function procStage(r){ const s=r.status||""; return PROC_LEGACY_STAGE[s] || (PROC_STAGE_DEFS.some(d=>d.id===s)?s:"Requesting Quotation"); }
+function procStageDef(stage){ return PROC_STAGE_DEFS.find(d=>d.id===stage) || PROC_STAGE_DEFS[0]; }
+function procStageColor(r){ return isOverdue(r) ? "#dc2626" : procStageDef(procStage(r)).color; }
+function procTabOf(r){ return procStageDef(procStage(r)).tab; }
+function procDisplayId(r){ return r.pr || r.po || ("REC-"+String(r.id||"").slice(-6).toUpperCase()); }
+
+/* ---- Column configuration ---- */
+const PROC_COLS = [
+  {k:"pid",   label:"Procurement ID", fixed:true},
+  {k:"name",  label:"Item / Scope",   fixed:true},
+  {k:"campus",label:"Campus/Project", def:true},
+  {k:"category",label:"Category",     def:true},
+  {k:"supplier",label:"Supplier",     def:true},
+  {k:"stage", label:"Current Stage",  def:true},
+  {k:"budget",label:"Budget / PO Value", def:true},
+  {k:"due",   label:"Due Date",       def:true},
+  {k:"responsible",label:"Responsible", def:true},
+  {k:"pr",    label:"PR Number"},
+  {k:"quote", label:"Quotation Number"},
+  {k:"po",    label:"PO Number"},
+  {k:"confirm",label:"Confirmed Date"},
+  {k:"deposit",label:"Deposit Amount"},
+  {k:"depositInv",label:"Deposit Invoice #"},
+  {k:"finalPay",label:"Final Payment"},
+  {k:"finalInv",label:"Final Invoice #"},
+  {k:"files", label:"Attachment"},
+  {k:"remarks",label:"Remarks"}
+];
+function procCols(){
+  if(!DB.settings.procCols){ const d={}; PROC_COLS.forEach(c=>{ if(c.fixed||c.def) d[c.k]=true; }); DB.settings.procCols=d; }
+  return DB.settings.procCols;
+}
+function procColOn(k){ const c=PROC_COLS.find(x=>x.k===k); if(c&&c.fixed) return true; return !!procCols()[k]; }
+function toggleProcCol(k,on){ procCols()[k]=on; saveDB(); paintProcurement(); }
+
+/* ---- View state ---- */
+let _procTab="all", _procQuick="", _procDrawerId=null;
+let _procF={q:"",campus:"",cat:"",supplier:"",responsible:"",stage:"",due:""};
+
+function procClearFilters(){ _procF={q:"",campus:"",cat:"",supplier:"",responsible:"",stage:"",due:""}; _procQuick=""; _procTab="all"; renderProcurement(); }
+
+/* ---- Quick views ---- */
+const PROC_QUICK=[
+  {id:"mine",     label:"My Assigned Records"},
+  {id:"approval", label:"Pending My Approval"},
+  {id:"overdue",  label:"Overdue"},
+  {id:"payment",  label:"Payment Pending"},
+  {id:"delivery", label:"Delivery This Month"},
+  {id:"docs",     label:"Missing Documents"}
+];
+function procQuickMatch(r,q){
+  const me=((SESSION&&SESSION.name)||"").toLowerCase();
+  switch(q){
+    case "mine": return me && String(r.responsible||"").toLowerCase().includes(me);
+    case "approval": return procStage(r)==="Pending Approval";
+    case "overdue": return isOverdue(r);
+    case "payment": { const paid=(Number(r.deposit)||0)+(Number(r.finalPay)||0); return paid < (Number(r.budget)||0) && !["Completed","Cancelled"].includes(procStage(r)); }
+    case "delivery": { if(!r.due) return false; const d=new Date(r.due), n=new Date(); return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear(); }
+    case "docs": return !(r.files&&r.files.length) || !r.quote || !r.pr;
+    default: return true;
+  }
+}
+
+/* ---- Row filtering (uses the same base data + sort as before) ---- */
+function procRows(opts){
+  opts=opts||{};
+  let base=DB.procurement.slice();
+  if(_procF.cat) base=base.filter(r=>r.listId===_procF.cat);
+  if(_procF.supplier) base=base.filter(r=>r.supplier===_procF.supplier);
+  if(_procF.responsible) base=base.filter(r=>r.responsible===_procF.responsible);
+  if(_procF.campus) base=base.filter(r=>r.campus===_procF.campus);
+  if(_procF.stage) base=base.filter(r=>procStage(r)===_procF.stage);
+  if(_procF.due) base=base.filter(r=>r.due===_procF.due);
+  if(_procQuick) base=base.filter(r=>procQuickMatch(r,_procQuick));
+  if(_procF.q){ const q=_procF.q.toLowerCase();
+    base=base.filter(r=>[r.name,r.pr,r.quote,r.po,r.supplier,r.remarks,r.category,r.depositInv,r.finalInv,r.responsible,procDisplayId(r)].join(" ").toLowerCase().includes(q)); }
+  if(!opts.ignoreTab && _procTab!=="all") base=base.filter(r=>procTabOf(r)===_procTab);
+  base.sort((a,b)=>poSortKey(a.po)-poSortKey(b.po) || String(a.po||"").localeCompare(String(b.po||"")));
+  return base;
+}
+
+/* ---- KPIs ---- */
+function procKPIs(){
+  const all=procRows({ignoreTab:true});
+  const active=all.filter(r=>!["Completed","Cancelled"].includes(procStage(r)));
+  return {
+    active: active.length,
+    pending: all.filter(r=>procStage(r)==="Pending Approval").length,
+    poIssued: all.filter(r=>["PO Issued","In Production","In Transit","Partially Received","Fully Received"].includes(procStage(r))).length,
+    overdue: all.filter(r=>isOverdue(r)).length,
+    committed: active.reduce((s,r)=>s+(Number(r.budget)||0),0)
+  };
+}
+
+/* ============================ PAGE ============================ */
 function renderProcurement(){
   seedProcLists();
-  // NOTE: filters are reset on navigation entry (see renderRecords), NOT here,
-  // so that changing the category dropdown (which re-calls renderProcurement) preserves the selection.
-  if(!_procFilter2) _procFilter2={list:"",supplier:"",responsible:""};
-  const isAll=_procListId==="all";
-  // page subtitle reflects the current list
-  const crumb=document.getElementById("pageCrumb"); if(crumb) crumb.textContent= isAll?"All procurement records across every list":("List: "+procListName(_procListId));
-  const suppliers=[...new Set(DB.procurement.map(r=>r.supplier).filter(Boolean))];
-  const responsibles=[...new Set(DB.procurement.map(r=>r.responsible).filter(Boolean))];
-  // Currently selected category (via dropdown). "" = All categories.
-  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const selCat=_procFilter2.list||"";
-  // Live total for the selected category (or all)
-  const catRecords = selCat ? DB.procurement.filter(r=>r.listId===selCat) : DB.procurement.slice();
-  const catTotal = catRecords.reduce((s,r)=>s+(Number(r.budget)||0),0);
-  const catLabel = selCat ? procListName(selCat) : "All Categories";
+  const crumb=document.getElementById("pageCrumb");
+  if(crumb) crumb.textContent="Manage procurement activities from approved PR through completion";
+  const k=procKPIs();
+  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{maximumFractionDigits:0});
+  const suppliers=[...new Set(DB.procurement.map(r=>r.supplier).filter(Boolean))].sort();
+  const responsibles=[...new Set(DB.procurement.map(r=>r.responsible).filter(Boolean))].sort();
+  const tabCounts={}; PROC_TABS.forEach(t=>tabCounts[t.id]=0);
+  procRows({ignoreTab:true}).forEach(r=>{ tabCounts.all++; tabCounts[procTabOf(r)]=(tabCounts[procTabOf(r)]||0)+1; });
+  const kpi=(id,label,val,accent,active)=>`<button class="pcc-kpi${active?' on':''}" onclick="procKpiClick('${id}')">
+      <div class="pcc-kpi-val" style="color:${accent}">${val}</div><div class="pcc-kpi-lbl">${label}</div></button>`;
   document.getElementById("content").innerHTML=`
-    <div class="toolbar" style="flex-wrap:wrap;gap:8px">
-      <div style="font-size:16px;font-weight:800">${esc(catLabel)} <span class="muted" style="font-size:12.5px;font-weight:600">${catRecords.length} record(s) · ${usd(catTotal)}</span></div>
-      <div class="grow"></div>
-      <div style="display:inline-flex;background:var(--surface-2);border-radius:9px;padding:3px;gap:3px">
-        <button class="btn btn-sm ${_procView==='list'?'btn-primary':'btn-ghost'}" onclick="_procView='list';paintTable('procurement')" style="${_procView==='list'?'':'background:transparent'}">List</button>
-        <button class="btn btn-sm ${_procView==='board'?'btn-primary':'btn-ghost'}" onclick="_procView='board';paintTable('procurement')" style="${_procView==='board'?'':'background:transparent'}">Board</button>
+  <div class="pcc">
+    <div class="pcc-head">
+      <div>
+        <h2 class="pcc-title">Procurement</h2>
+        <p class="pcc-sub">Manage procurement activities from approved PR through completion</p>
       </div>
-      <button class="btn btn-primary" onclick="openRecordForm('procurement')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Record</button>
-      <button class="btn btn-ghost btn-sm" onclick="openManageCategories()">Manage Categories</button>
-      <button class="btn btn-ghost btn-sm" onclick="exportProcurementExcel()">Excel</button>
-      <button class="btn btn-ghost btn-sm" onclick="printProcurement()">Print</button>
+      <div class="pcc-head-actions">
+        <button class="btn btn-primary" onclick="openRecordForm('procurement')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Procurement</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportProcurementExcel()">Export</button>
+        <button class="btn btn-ghost btn-sm" onclick="printProcurement()">Print</button>
+        <button class="btn btn-ghost btn-sm" onclick="openManageCategories()">Manage Categories</button>
+      </div>
     </div>
-    <div class="toolbar" style="flex-wrap:wrap;gap:8px">
-      <input class="filter-sel" id="fltQ" placeholder="Search..." style="min-width:150px" value="${esc(_filter.q||'')}" oninput="_filter.q=this.value;paintTable('procurement')">
-      <select class="filter-sel" id="fltCat" onchange="_procFilter2.list=this.value;renderProcurement()" title="Filter by category" style="font-weight:600">
-        <option value="">All Categories (${DB.procurement.length})</option>
-        ${activeProcLists().map(l=>`<option value="${l.id}" ${selCat===l.id?'selected':''}>${esc(l.name)} (${procListCount(l.id)})</option>`).join("")}
-      </select>
-      <select class="filter-sel" id="fltCampus" onchange="_filter.campus=this.value;paintTable('procurement')"><option value="">All Campus/Project</option>${PROC_CAMPUSES.map(c=>`<option ${_filter.campus===c?'selected':''}>${c}</option>`).join("")}</select>
-      <select class="filter-sel" id="fltStatus" onchange="_filter.status=this.value;paintTable('procurement')"><option value="">All Status</option>${PROC_STATUSES.map(s=>`<option ${_filter.status===s?'selected':''}>${s}</option>`).join("")}</select>
-      <select class="filter-sel" onchange="_procFilter2.supplier=this.value;paintTable('procurement')"><option value="">All Suppliers</option>${suppliers.map(s=>`<option ${_procFilter2.supplier===s?'selected':''}>${esc(s)}</option>`).join("")}</select>
-      <select class="filter-sel" onchange="_procFilter2.responsible=this.value;paintTable('procurement')"><option value="">All Responsible</option>${responsibles.map(s=>`<option ${_procFilter2.responsible===s?'selected':''}>${esc(s)}</option>`).join("")}</select>
+
+    <div class="pcc-kpis">
+      ${kpi("active","Active Procurements",k.active,"var(--primary)",_procQuick===""&&_procTab==="all"&&!_procF.stage)}
+      ${kpi("pending","Pending Approval",k.pending,"#d97706",_procF.stage==="Pending Approval")}
+      ${kpi("po","Purchase Orders Issued",k.poIssued,"#7c3aed",_procTab==="po")}
+      ${kpi("overdue","Overdue Records",k.overdue,"#dc2626",_procQuick==="overdue")}
+      ${kpi("value","Total Committed Value",usd(k.committed),"#059669",false)}
     </div>
-    <div id="tableHost"></div>`;
-  paintTable("procurement");
+
+    <div class="pcc-tabs">
+      ${PROC_TABS.map(t=>`<button class="pcc-tab${_procTab===t.id?' on':''}" onclick="_procTab='${t.id}';renderProcurement()">${t.label}<span class="pcc-tab-n">${tabCounts[t.id]||0}</span></button>`).join("")}
+    </div>
+
+    <div class="pcc-filters">
+      <input class="pcc-inp" id="pf_q" placeholder="Search records..." value="${esc(_procF.q)}" oninput="_procF.q=this.value;paintProcurement()">
+      <select class="pcc-inp" onchange="_procF.campus=this.value;paintProcurement()"><option value="">All Campus/Project</option>${PROC_CAMPUSES.map(c=>`<option ${_procF.campus===c?'selected':''}>${esc(c)}</option>`).join("")}</select>
+      <select class="pcc-inp" onchange="_procF.cat=this.value;renderProcurement()"><option value="">All Categories</option>${activeProcLists().map(l=>`<option value="${l.id}" ${_procF.cat===l.id?'selected':''}>${esc(l.name)}</option>`).join("")}</select>
+      <select class="pcc-inp" onchange="_procF.supplier=this.value;paintProcurement()"><option value="">All Suppliers</option>${suppliers.map(s=>`<option ${_procF.supplier===s?'selected':''}>${esc(s)}</option>`).join("")}</select>
+      <select class="pcc-inp" onchange="_procF.responsible=this.value;paintProcurement()"><option value="">All Responsible</option>${responsibles.map(s=>`<option ${_procF.responsible===s?'selected':''}>${esc(s)}</option>`).join("")}</select>
+      <select class="pcc-inp" onchange="_procF.stage=this.value;renderProcurement()"><option value="">All Stages</option>${PROC_STAGE_DEFS.map(d=>`<option ${_procF.stage===d.id?'selected':''}>${d.id}</option>`).join("")}</select>
+      <input class="pcc-inp" type="date" value="${esc(_procF.due)}" title="Due date" onchange="_procF.due=this.value;paintProcurement()">
+      <button class="btn btn-ghost btn-sm" onclick="procClearFilters()">Clear</button>
+      <button class="btn btn-ghost btn-sm" onclick="procSaveView()">Save View</button>
+      <button class="btn btn-ghost btn-sm" onclick="openProcColumns()">Columns</button>
+      <div class="pcc-viewtoggle">
+        <button class="${_procView==='list'?'on':''}" onclick="_procView='list';paintProcurement()">List</button>
+        <button class="${_procView==='board'?'on':''}" onclick="_procView='board';paintProcurement()">Board</button>
+      </div>
+    </div>
+
+    <div class="pcc-quick">
+      ${PROC_QUICK.map(q=>`<button class="pcc-chip${_procQuick===q.id?' on':''}" onclick="_procQuick=(_procQuick==='${q.id}'?'':'${q.id}');renderProcurement()">${q.label}</button>`).join("")}
+      ${(DB.settings.procViews||[]).map((v,i)=>`<button class="pcc-chip saved" onclick="procApplyView(${i})" title="Saved view">★ ${esc(v.name)}<span onclick="event.stopPropagation();procDeleteView(${i})" style="margin-left:6px;opacity:.6">✕</span></button>`).join("")}
+    </div>
+
+    <div id="tableHost"></div>
+  </div>
+  <div id="procDrawer" class="pcc-drawer"></div><div id="procDrawerBd" class="pcc-drawer-bd" onclick="closeProcDrawer()"></div>`;
+  paintProcurement();
 }
+
+function procKpiClick(which){
+  _procQuick=""; _procF.stage="";
+  if(which==="active"){ _procTab="all"; }
+  else if(which==="pending"){ _procF.stage="Pending Approval"; _procTab="all"; }
+  else if(which==="po"){ _procTab="po"; }
+  else if(which==="overdue"){ _procQuick="overdue"; _procTab="all"; }
+  else if(which==="value"){ _procTab="all"; }
+  renderProcurement();
+}
+
+/* ---- Saved views ---- */
+function procSaveView(){
+  const name=prompt("Name this view:"); if(!name) return;
+  DB.settings.procViews=DB.settings.procViews||[];
+  DB.settings.procViews.push({name:name.trim(),f:JSON.parse(JSON.stringify(_procF)),tab:_procTab,quick:_procQuick});
+  saveDB(); renderProcurement(); toast("View saved","","ok");
+}
+function procApplyView(i){ const v=(DB.settings.procViews||[])[i]; if(!v) return; _procF=Object.assign({q:"",campus:"",cat:"",supplier:"",responsible:"",stage:"",due:""},v.f||{}); _procTab=v.tab||"all"; _procQuick=v.quick||""; renderProcurement(); }
+function procDeleteView(i){ (DB.settings.procViews||[]).splice(i,1); saveDB(); renderProcurement(); }
+
+/* ---- Column settings ---- */
+function openProcColumns(){
+  openModal(`<div class="modal-head"><h3>Column Settings</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+  <div class="modal-body"><p class="muted" style="font-size:12.5px;margin:0 0 12px">Choose which columns to display. Procurement ID and Item/Scope are always shown and stay frozen while scrolling.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
+  ${PROC_COLS.map(c=>`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;${c.fixed?'opacity:.55':'cursor:pointer'}">
+     <input type="checkbox" style="width:auto" ${procColOn(c.k)?'checked':''} ${c.fixed?'disabled':''} onchange="toggleProcCol('${c.k}',this.checked)"> ${esc(c.label)}</label>`).join("")}
+  </div></div>
+  <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Done</button></div>`,{size:"wide"});
+}
+
+/* ============================ TABLE ============================ */
+function paintProcurement(){
+  const host=document.getElementById("tableHost"); if(!host) return;
+  if(_procView==="board") return paintProcurementBoard(host);
+  const rows=procRows();
+  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(!rows.length){
+    host.innerHTML=`<div class="empty" style="padding:44px"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <h4>No records match</h4><p>Try clearing filters, or click “New Procurement” to add one.</p></div>`;
+    return;
+  }
+  const cols=PROC_COLS.filter(c=>procColOn(c.k));
+  const cell=(c,r)=>{
+    switch(c.k){
+      case "pid": return `<b>${esc(procDisplayId(r))}</b>`;
+      case "name": return `<span class="pcc-name">${esc(r.name)}</span>${isOverdue(r)?' <span class="pcc-dot-od" title="Overdue"></span>':""}`;
+      case "campus": return r.campus?`<span class="pcc-soft">${esc(r.campus)}</span>`:'<span class="muted">—</span>';
+      case "category": return `<span class="pcc-soft">${esc(procListName(r.listId))}</span>`;
+      case "supplier": return esc(r.supplier)||'<span class="muted">—</span>';
+      case "stage": { const col=procStageColor(r); return `<span class="pcc-stage" style="color:${col}"><i style="background:${col}"></i>${esc(r.status||procStage(r))}</span>`; }
+      case "budget": return `<b>${usd(r.budget)}</b>`;
+      case "due": return isOverdue(r)?`<span style="color:#dc2626;font-weight:600">${fmtDateUS(r.due)}</span>`:fmtDateUS(r.due);
+      case "responsible": return esc(r.responsible)||'<span class="muted">—</span>';
+      case "pr": return esc(r.pr)||'<span class="muted">—</span>';
+      case "quote": return esc(r.quote)||'<span class="muted">—</span>';
+      case "po": return esc(r.po)||'<span class="muted">—</span>';
+      case "confirm": return fmtDateUS(r.confirm);
+      case "deposit": return r.deposit?usd(r.deposit):'<span class="muted">—</span>';
+      case "depositInv": return esc(r.depositInv)||'<span class="muted">—</span>';
+      case "finalPay": return r.finalPay?usd(r.finalPay):'<span class="muted">—</span>';
+      case "finalInv": return esc(r.finalInv)||'<span class="muted">—</span>';
+      case "files": return (r.files&&r.files.length)?`<span class="att-pill" onclick="event.stopPropagation();previewFile('procurement','${r.id}',0)">📎${r.files.length}</span>`:'<span class="muted">—</span>';
+      case "remarks": return r.remarks?`<span class="pcc-ell" title="${esc(r.remarks)}">${esc(r.remarks)}</span>`:'<span class="muted">—</span>';
+      default: return "";
+    }
+  };
+  const numCols={budget:1,deposit:1,finalPay:1};
+  host.innerHTML=`
+   <div class="pcc-tablewrap"><table class="pcc-table">
+     <thead><tr>
+       ${cols.map((c,i)=>`<th class="${i===0?'frz frz1':(i===1?'frz frz2':'')} ${numCols[c.k]?'num':''}">${esc(c.label)}</th>`).join("")}
+       <th class="pcc-actcol">Action</th>
+     </tr></thead>
+     <tbody>
+     ${rows.map(r=>`<tr onclick="openProcDrawer('${r.id}')">
+       ${cols.map((c,i)=>`<td class="${i===0?'frz frz1':(i===1?'frz frz2':'')} ${numCols[c.k]?'num':''}">${cell(c,r)}</td>`).join("")}
+       <td class="pcc-actcol" onclick="event.stopPropagation()"><div class="row-actions">
+         <button class="act-btn" title="Edit" onclick="openRecordForm('procurement','${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+         <button class="act-btn" title="Create Purchase Order" style="color:var(--primary)" onclick="createPOFromRecord('${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>
+         <button class="act-btn del" title="Delete" onclick="deleteRecord('procurement','${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+       </div></td>
+     </tr>`).join("")}
+     </tbody>
+   </table></div>
+   <div class="pcc-cards">
+     ${rows.map(r=>`<div class="pcc-card" onclick="openProcDrawer('${r.id}')">
+       <div class="pcc-card-top"><b>${esc(procDisplayId(r))}</b><span class="pcc-stage" style="color:${procStageColor(r)}"><i style="background:${procStageColor(r)}"></i>${esc(r.status||procStage(r))}</span></div>
+       <div class="pcc-card-name">${esc(r.name)}</div>
+       <div class="pcc-card-meta"><span>${esc(r.campus||"—")}</span><span>${esc(r.supplier||"—")}</span></div>
+       <div class="pcc-card-foot"><b>${usd(r.budget)}</b><span class="${isOverdue(r)?'od':''}">${fmtDateUS(r.due)}</span></div>
+     </div>`).join("")}
+   </div>
+   <div class="pcc-foot">${rows.length} record(s) · Total ${usd(rows.reduce((a,r)=>a+(Number(r.budget)||0),0))}</div>`;
+}
+
+/* ============================ BOARD ============================ */
+function paintProcurementBoard(host){
+  const rows=procRows({ignoreTab:_procTab==="all"});
+  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{maximumFractionDigits:0});
+  const groups={}; PROC_STAGE_DEFS.forEach(d=>groups[d.id]=[]);
+  rows.forEach(r=>{ (groups[procStage(r)]=groups[procStage(r)]||[]).push(r); });
+  host.innerHTML=`<div class="pcc-board">${PROC_STAGE_DEFS.map(d=>{
+    const list=groups[d.id]||[];
+    return `<div class="pcc-col" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="this.classList.remove('over');procDropStage(event,'${esc(d.id)}')">
+      <div class="pcc-col-head"><span class="pcc-stage" style="color:${d.color}"><i style="background:${d.color}"></i>${esc(d.id)}</span><span class="pcc-col-n">${list.length}</span></div>
+      <div class="pcc-col-body">
+      ${list.map(r=>`<div class="pcc-bcard" draggable="${isViewer()?'false':'true'}" ondragstart="event.dataTransfer.setData('text/plain','${r.id}')" onclick="openProcDrawer('${r.id}')">
+        <div class="pcc-bcard-id">${esc(procDisplayId(r))}</div>
+        <div class="pcc-bcard-name">${esc(r.name)}</div>
+        <div class="pcc-bcard-foot"><b>${usd(r.budget)}</b>${isOverdue(r)?'<span style="color:#dc2626">Overdue</span>':`<span class="muted">${fmtDateUS(r.due)}</span>`}</div>
+      </div>`).join("")||'<div class="pcc-col-empty">—</div>'}
+      </div></div>`;
+  }).join("")}</div>`;
+}
+function procDropStage(ev,stage){
+  ev.preventDefault();
+  if(isViewer()){ toast("View-only account","This account can't change record stages","err"); return; }
+  const id=ev.dataTransfer.getData("text/plain"); const r=DB.procurement.find(x=>x.id===id); if(!r) return;
+  if(procStage(r)===stage) return;
+  r.status=stage; r.updated=Date.now();
+  r.history=r.history||[]; r.history.push({at:Date.now(),by:(SESSION&&SESSION.name)||"System",action:"Stage changed to "+stage});
+  saveDB(); renderProcurement(); toast("Stage updated",r.name+" → "+stage,"ok");
+}
+
+/* ============================ DETAIL DRAWER ============================ */
+function closeProcDrawer(){
+  _procDrawerId=null;
+  const d=document.getElementById("procDrawer"), b=document.getElementById("procDrawerBd");
+  if(d) d.classList.remove("open"); if(b) b.classList.remove("open");
+}
+function openProcDrawer(id){
+  const r=DB.procurement.find(x=>x.id===id); if(!r) return;
+  _procDrawerId=id;
+  const d=document.getElementById("procDrawer"), b=document.getElementById("procDrawerBd"); if(!d) return;
+  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const row=(l,v)=>`<div class="pcc-dr"><span>${l}</span><b>${v||'<span class="muted">—</span>'}</b></div>`;
+  const sec=(t,inner)=>`<div class="pcc-sec"><h4>${t}</h4>${inner}</div>`;
+  const paid=(Number(r.deposit)||0)+(Number(r.finalPay)||0);
+  d.innerHTML=`
+   <div class="pcc-drawer-head">
+     <div><div class="muted" style="font-size:11px;font-weight:700;letter-spacing:.4px">${esc(procDisplayId(r))}</div>
+       <h3 style="margin:2px 0 0;font-size:16px">${esc(r.name)}</h3>
+       <span class="pcc-stage" style="color:${procStageColor(r)}"><i style="background:${procStageColor(r)}"></i>${esc(r.status||procStage(r))}</span></div>
+     <button class="act-btn" onclick="closeProcDrawer()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+   </div>
+   <div class="pcc-drawer-body">
+     ${sec("General Information", row("Campus / Project",esc(r.campus))+row("Category",esc(procListName(r.listId)))+row("Responsible",esc(r.responsible))+row("Budget / PO Value",usd(r.budget))+row("Due Date",fmtDateUS(r.due)))}
+     ${sec("PR &amp; Quotation", row("PR Number",esc(r.pr))+row("Quotation Number",esc(r.quote)))}
+     ${sec("Supplier Evaluation", row("Supplier",esc(r.supplier))+row("Category",esc(r.category)))}
+     ${sec("Approval", row("Current Stage",esc(r.status||procStage(r)))+row("Confirmed Date",fmtDateUS(r.confirm)))}
+     ${sec("Purchase Order", row("PO Number",esc(r.po)))}
+     ${sec("Payment", row("Deposit",r.deposit?usd(r.deposit):"")+row("Deposit Invoice #",esc(r.depositInv))+row("Final Payment",r.finalPay?usd(r.finalPay):"")+row("Final Invoice #",esc(r.finalInv))+row("Total Paid",usd(paid))+row("Outstanding",usd(Math.max(0,(Number(r.budget)||0)-paid))))}
+     ${sec("Delivery &amp; Receiving", row("Stage",esc(r.status||procStage(r)))+row("Confirmed / Received",fmtDateUS(r.confirm)))}
+     ${sec("Line Items", (r.items&&r.items.length)?`<table class="pcc-mini"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>${r.items.map(it=>`<tr><td>${esc(it.desc)}</td><td class="num">${it.qty}</td><td class="num">${usd(it.price)}</td><td class="num">${usd((it.qty||0)*(it.price||0))}</td></tr>`).join("")}</tbody></table>`:'<p class="muted" style="font-size:12.5px">No line items.</p>')}
+     ${sec("Attachments", (r.files&&r.files.length)?r.files.map((f,i)=>`<div class="pcc-file" onclick="previewFile('procurement','${r.id}',${i})">📎 ${esc(f.name||"file")}</div>`).join(""):'<p class="muted" style="font-size:12.5px">No attachments.</p>')}
+     ${sec("Remarks", r.remarks?`<p style="font-size:12.5px;margin:0">${esc(r.remarks)}</p>`:'<p class="muted" style="font-size:12.5px">—</p>')}
+     ${sec("Activity History", (r.history&&r.history.length)?r.history.slice().reverse().map(h=>`<div class="pcc-hist"><span>${esc(h.action||"")}</span><span class="muted">${esc(h.by||"")} · ${fmtStamp(h.at)}</span></div>`).join(""):'<p class="muted" style="font-size:12.5px">No activity recorded yet.</p>')}
+   </div>
+   <div class="pcc-drawer-foot">
+     ${isViewer()?"":`<button class="btn btn-ghost btn-sm" onclick="procDuplicate('${r.id}')">Duplicate</button>
+     <button class="btn btn-ghost btn-sm" onclick="procCloseRecord('${r.id}')">Close Record</button>`}
+     <button class="btn btn-ghost btn-sm" onclick="procDrawerPDF('${r.id}')">Download PDF</button>
+     ${isViewer()?"":`<button class="btn btn-primary btn-sm" onclick="closeProcDrawer();openRecordForm('procurement','${r.id}')">Edit</button>`}
+   </div>`;
+  d.classList.add("open"); b.classList.add("open");
+}
+function procDuplicate(id){
+  const r=DB.procurement.find(x=>x.id===id); if(!r) return;
+  const copy=JSON.parse(JSON.stringify(r));
+  copy.id=uid(); copy.name=r.name+" (copy)"; copy.pr=""; copy.quote=""; copy.po=""; copy.depositInv=""; copy.finalInv="";
+  copy.status="Requesting Quotation"; copy.created=Date.now(); copy.updated=Date.now(); copy.history=[]; copy.comments=[];
+  DB.procurement.unshift(copy); saveDB(); closeProcDrawer(); renderProcurement(); buildNav(); toast("Record duplicated","","ok");
+}
+function procCloseRecord(id){
+  const r=DB.procurement.find(x=>x.id===id); if(!r) return;
+  confirmModal("Close this record?",`“${esc(r.name)}” will be marked Completed.`,()=>{
+    r.status="Completed"; r.updated=Date.now();
+    r.history=r.history||[]; r.history.push({at:Date.now(),by:(SESSION&&SESSION.name)||"System",action:"Record closed (Completed)"});
+    saveDB(); closeProcDrawer(); renderProcurement(); toast("Record closed","","ok");
+  },"Close Record",false);
+}
+function procDrawerPDF(id){
+  const r=DB.procurement.find(x=>x.id===id); if(!r) return;
+  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const body=`<h2>${esc(r.name)}</h2><p><b>${esc(procDisplayId(r))}</b> · ${esc(r.status||procStage(r))}</p>
+    <table><tbody>
+    <tr><td>Campus/Project</td><td>${esc(r.campus||"")}</td></tr>
+    <tr><td>Category</td><td>${esc(procListName(r.listId))}</td></tr>
+    <tr><td>Supplier</td><td>${esc(r.supplier||"")}</td></tr>
+    <tr><td>PR Number</td><td>${esc(r.pr||"")}</td></tr>
+    <tr><td>Quotation Number</td><td>${esc(r.quote||"")}</td></tr>
+    <tr><td>PO Number</td><td>${esc(r.po||"")}</td></tr>
+    <tr><td>Budget</td><td>${usd(r.budget)}</td></tr>
+    <tr><td>Deposit</td><td>${r.deposit?usd(r.deposit):""}</td></tr>
+    <tr><td>Final Payment</td><td>${r.finalPay?usd(r.finalPay):""}</td></tr>
+    <tr><td>Due Date</td><td>${fmtDateUS(r.due)}</td></tr>
+    <tr><td>Responsible</td><td>${esc(r.responsible||"")}</td></tr>
+    <tr><td>Remarks</td><td>${esc(r.remarks||"")}</td></tr>
+    </tbody></table>`;
+  const w=window.open("","_blank");
+  if(w){ w.document.write(`<html><head><title>${esc(r.name)}</title><style>body{font-family:Arial;padding:24px}table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}td{border:1px solid #ccc;padding:6px}td:first-child{background:#f4f5f7;font-weight:600;width:30%}</style></head><body>${body}</body></html>`); w.document.close(); w.focus(); setTimeout(()=>w.print(),350); }
+}
+
 
 let _collapsedGroups={};
 function toggleGroup(key){ _collapsedGroups[key]=!_collapsedGroups[key]; paintTable("procurement"); }
@@ -1531,107 +1987,8 @@ const PROC_GROUP_COLORS={
   "Approved":"#0d9488","In Progress":"#2563eb","Ordered":"#7c3aed","Partially Delivered":"#f59e0b",
   "Delivered":"#0891b2","Completed":"#059669","On Hold":"#d97706","Cancelled":"#dc2626"
 };
-function paintProcurement(){
-  const host=document.getElementById("tableHost");
-  if(_procView==="board"){ return paintProcurementBoard(host); }
-  const rows=filteredRecords("procurement");
-  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const showList=true; // always show the Category column now that sidebar sub-lists are gone
-  const headRow=`<tr>
-    <th style="min-width:190px">Name</th>
-    ${showList?'<th>Category</th>':''}
-    <th>Campus</th><th>PR Number</th><th>Quote Number</th><th>PO Number</th>
-    <th style="text-align:right">Total Budget</th><th>Status</th>
-    <th>Due Date</th><th>Confirmed Date</th>
-    <th style="text-align:right">Deposit</th><th>Deposit INV#</th>
-    <th style="text-align:right">Final Payment</th><th>Final INV#</th>
-    <th>Responsible</th><th>Attachment</th><th>Remarks</th><th>Action</th>
-  </tr>`;
-  if(!rows.length){
-    host.innerHTML=`<div class="empty">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      <h4>No procurement items yet</h4><p>Click “Add Record” to create your first procurement task.</p></div>`;
-    return;
-  }
-  const groups={}; PROC_STATUSES.forEach(s=>groups[s]=[]);
-  rows.forEach(r=>{ const s=PROC_STATUSES.includes(r.status)?r.status:"To Do"; groups[s].push(r); });
-  let html="";
-  PROC_STATUSES.forEach(status=>{
-    const list=groups[status];
-    if(!list.length) return;
-    const color=PROC_GROUP_COLORS[status]||"#697586";
-    const key="g_"+status.replace(/\s/g,"");
-    const collapsed=_collapsedGroups[key];
-    const groupSum=list.reduce((a,r)=>a+(Number(r.budget)||0),0);
-    const body=list.map(r=>{
-      const overdue=isOverdue(r);
-      const att=(r.files&&r.files.length)?`<span class="att-pill" title="${esc(r.files[0].name||"")}" onclick="previewFile('procurement','${r.id}',0)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>${esc((r.files[0].name||"").slice(0,16))}${r.files.length>1?` +${r.files.length-1}`:""}</span>`:'<span class="muted">—</span>';
-      return `<tr>
-        <td class="ell" title="${esc(r.name)}"><b>${esc(r.name)}</b>${overdue?` <span class="status s-overdue" style="margin-left:4px">Overdue</span>`:""}</td>
-        ${showList?`<td><span class="campus-tag ${campusTagClass(procListName(r.listId))}">${esc(procListName(r.listId))}</span></td>`:''}
-        <td>${r.campus?`<span class="campus-tag ${campusTagClass(r.campus)}">${esc(r.campus)}</span>`:'<span class="muted">—</span>'}</td>
-        <td class="ell-sm" title="${esc(r.pr)}">${esc(r.pr)||'<span class="muted">—</span>'}</td>
-        <td class="ell-sm" title="${esc(r.quote)}">${esc(r.quote)||'<span class="muted">—</span>'}</td>
-        <td>${esc(r.po)||'<span class="muted">—</span>'}</td>
-        <td class="num"><b>${usd(r.budget)}</b></td>
-        <td><span class="status ${statusClass(r.status)}">${esc(r.status)}</span></td>
-        <td>${fmtDateUS(r.due)}</td>
-        <td>${fmtDateUS(r.confirm)}</td>
-        <td class="num">${r.deposit?usd(r.deposit):'<span class="muted">—</span>'}</td>
-        <td class="ell-sm" title="${esc(r.depositInv)}">${esc(r.depositInv)||'<span class="muted">—</span>'}</td>
-        <td class="num">${r.finalPay?usd(r.finalPay):'<span class="muted">—</span>'}</td>
-        <td class="ell-sm" title="${esc(r.finalInv)}">${esc(r.finalInv)||'<span class="muted">—</span>'}</td>
-        <td class="ell-sm" title="${esc(r.responsible)}">${esc(r.responsible)||'<span class="muted">—</span>'}</td>
-        <td>${att}</td>
-        <td class="ell" title="${esc(r.remarks)}">${r.remarks?esc(r.remarks):'<span class="muted">—</span>'}</td>
-        <td><div class="row-actions">
-          <button class="act-btn" title="View" onclick="viewRecord('procurement','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-          <button class="act-btn" title="Edit" onclick="openRecordForm('procurement','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
-          <button class="act-btn" title="Move to list" onclick="openMoveRecord('${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg></button>
-          <button class="act-btn" title="Create Purchase Order" style="color:var(--primary)" onclick="createPOFromRecord('${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>
-          <button class="act-btn del" title="Delete" onclick="deleteRecord('procurement','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
-        </div></td>
-      </tr>`;
-    }).join("");
-    html+=`<div class="cu-group">
-      <div class="cu-group-head" onclick="toggleGroup('${key}')">
-        <svg class="cu-caret ${collapsed?'collapsed':''}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-        <span class="cu-group-name" style="background:${color}22;color:${color}">${esc(status)}</span>
-        <span class="cu-group-count">${list.length}</span>
-        <span class="cu-group-sum">${usd(groupSum)}</span>
-      </div>
-      ${collapsed?"":`<div class="cu-group-body" style="margin-top:6px">
-        <div class="hscroll"><table class="data proc-table"><thead>${headRow}</thead><tbody>${body}</tbody></table></div>
-        <div class="cu-add-row" onclick="openRecordForm('procurement',null,'${esc(status)}')">+ Add item to ${esc(status)}</div>
-      </div>`}
-    </div>`;
-  });
-  host.innerHTML=html;
-}
 
 /* ---------- Procurement Board view ---------- */
-function paintProcurementBoard(host){
-  const rows=filteredRecords("procurement");
-  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const groups={}; PROC_STATUSES.forEach(s=>groups[s]=[]);
-  rows.forEach(r=>{ const s=PROC_STATUSES.includes(r.status)?r.status:"To Do"; groups[s].push(r); });
-  host.innerHTML=`<div class="proc-board">${PROC_STATUSES.map(status=>{
-    const list=groups[status]; const color=PROC_GROUP_COLORS[status]||"#697586";
-    const sum=list.reduce((a,r)=>a+(Number(r.budget)||0),0);
-    return `<div class="proc-board-col">
-      <div class="proc-board-head"><span class="cu-group-name" style="background:${color}22;color:${color}">${esc(status)}</span><span class="cu-group-count">${list.length}</span></div>
-      <div class="proc-board-sum">${usd(sum)}</div>
-      <div class="proc-board-cards">${list.map(r=>`<div class="proc-card" onclick="viewRecord('procurement','${r.id}')">
-        <div style="font-weight:700;font-size:13px;margin-bottom:6px">${esc(r.name)}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px">${r.campus?`<span class="campus-tag ${campusTagClass(r.campus)}">${esc(r.campus)}</span>`:""}${_procListId==="all"?`<span class="campus-tag ${campusTagClass(procListName(r.listId))}">${esc(procListName(r.listId))}</span>`:""}</div>
-        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-dim)"><span>${esc(r.pr||"—")}</span><b style="color:var(--text)">${usd(r.budget)}</b></div>
-        ${r.due?`<div style="font-size:11px;color:var(--text-dim);margin-top:5px">Due ${fmtDateUS(r.due)}</div>`:""}
-      </div>`).join("")||'<div class="muted" style="font-size:12px;padding:8px">No records</div>'}
-      <div class="cu-add-row" onclick="event.stopPropagation();openRecordForm('procurement',null,'${esc(status)}')">+ Add</div>
-      </div>
-    </div>`;
-  }).join("")}</div>`;
-}
 
 /* ---------- Procurement list management ---------- */
 // Manage all procurement categories from one modal (replaces the old sidebar per-list menus)
@@ -1851,7 +2208,7 @@ function openRecordForm(set,id,defaultStatus){
   const titles={procurement:"Procurement Record",projects:"Project Record",maintenance:"Maintenance Record"};
   const isProc=set==="procurement";
   const campusOpts=isProc?PROC_CAMPUSES:CAMPUSES;
-  const statusOpts=(isProc?PROC_STATUSES:STATUSES.filter(s=>s!=="Overdue"));
+  const statusOpts=(isProc?procStatusOptions():STATUSES.filter(s=>s!=="Overdue"));
   const curStatus=r?.status || defaultStatus || statusOpts[0];
   const field=(lbl,name,val,req,type)=>`<div class="field"><label class="${req?'req':''}">${lbl}</label><input type="${type||'text'}" id="f_${name}" value="${esc(val||'')}"></div>`;
   const moneyField=(lbl,name,val,req)=>`<div class="field"><label class="${req?'req':''}">${lbl} (USD)</label><input type="number" step="0.01" min="0" id="f_${name}" value="${val!=null&&val!==''?val:''}" placeholder="0.00"></div>`;
