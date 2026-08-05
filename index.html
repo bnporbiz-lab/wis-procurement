@@ -138,6 +138,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .pcc-stage{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12px;white-space:nowrap}
 .pcc-stage i{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
 .pcc-dot-od{display:inline-block;width:7px;height:7px;border-radius:50%;background:#dc2626}
+.pcc-new{display:inline-block;font-size:9px;font-weight:800;color:#047857;background:#05966922;border-radius:5px;padding:1px 6px;vertical-align:middle;letter-spacing:.4px}
 .pcc-ell{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .pcc-actcol{width:1%;white-space:nowrap}
 .pcc-foot{padding:10px 4px;font-size:12px;color:var(--text-dim);font-weight:600}
@@ -1681,9 +1682,9 @@ function toggleProcCol(k,on){ procCols()[k]=on; saveDB(); paintProcurement(); }
 
 /* ---- View state ---- */
 let _procTab="all", _procQuick="", _procDrawerId=null;
-let _procF={q:"",campus:"",cat:"",supplier:"",responsible:"",stage:"",due:""};
+let _procF={q:"",campus:"",cat:"",supplier:"",responsible:"",stage:"",due:"",sort:"new"};
 
-function procClearFilters(){ _procF={q:"",campus:"",cat:"",supplier:"",responsible:"",stage:"",due:""}; _procQuick=""; _procTab="all"; renderProcurement(); }
+function procClearFilters(){ _procF={q:"",campus:"",cat:"",supplier:"",responsible:"",stage:"",due:"",sort:"new"}; _procQuick=""; _procTab="all"; renderProcurement(); }
 
 /* ---- Quick views ---- */
 const PROC_QUICK=[
@@ -1721,7 +1722,12 @@ function procRows(opts){
   if(_procF.q){ const q=_procF.q.toLowerCase();
     base=base.filter(r=>[r.name,r.pr,r.quote,r.po,r.supplier,r.remarks,r.category,r.depositInv,r.finalInv,r.responsible,procDisplayId(r)].join(" ").toLowerCase().includes(q)); }
   if(!opts.ignoreTab && _procTab!=="all") base=base.filter(r=>procTabOf(r)===_procTab);
-  base.sort((a,b)=>poSortKey(a.po)-poSortKey(b.po) || String(a.po||"").localeCompare(String(b.po||"")));
+  const sortMode=_procF.sort||"new";
+  if(sortMode==="new") base.sort((a,b)=>(Number(b.created)||0)-(Number(a.created)||0));
+  else if(sortMode==="old") base.sort((a,b)=>(Number(a.created)||0)-(Number(b.created)||0));
+  else if(sortMode==="due") base.sort((a,b)=>(a.due?new Date(a.due).getTime():9e15)-(b.due?new Date(b.due).getTime():9e15));
+  else if(sortMode==="budget") base.sort((a,b)=>(Number(b.budget)||0)-(Number(a.budget)||0));
+  else base.sort((a,b)=>poSortKey(a.po)-poSortKey(b.po) || String(a.po||"").localeCompare(String(b.po||"")));
   return base;
 }
 
@@ -1786,6 +1792,13 @@ function renderProcurement(){
       <select class="pcc-inp" onchange="_procF.responsible=this.value;paintProcurement()"><option value="">All Responsible</option>${responsibles.map(s=>`<option ${_procF.responsible===s?'selected':''}>${esc(s)}</option>`).join("")}</select>
       <select class="pcc-inp" onchange="_procF.stage=this.value;renderProcurement()"><option value="">All Stages</option>${PROC_STAGE_DEFS.map(d=>`<option ${_procF.stage===d.id?'selected':''}>${d.id}</option>`).join("")}</select>
       <input class="pcc-inp" type="date" value="${esc(_procF.due)}" title="Due date" onchange="_procF.due=this.value;paintProcurement()">
+      <select class="pcc-inp" title="Sort order" onchange="_procF.sort=this.value;paintProcurement()">
+        <option value="new" ${(_procF.sort||"new")==="new"?"selected":""}>Newest first</option>
+        <option value="old" ${_procF.sort==="old"?"selected":""}>Oldest first</option>
+        <option value="po" ${_procF.sort==="po"?"selected":""}>PO number</option>
+        <option value="due" ${_procF.sort==="due"?"selected":""}>Due date</option>
+        <option value="budget" ${_procF.sort==="budget"?"selected":""}>Budget high→low</option>
+      </select>
       <button class="btn btn-ghost btn-sm" onclick="procClearFilters()">Clear</button>
       <button class="btn btn-ghost btn-sm" onclick="procSaveView()">Save View</button>
       <button class="btn btn-ghost btn-sm" onclick="openProcColumns()">Columns</button>
@@ -1852,7 +1865,7 @@ function paintProcurement(){
   const cell=(c,r)=>{
     switch(c.k){
       case "pid": return `<b>${esc(procDisplayId(r))}</b>`;
-      case "name": return `<span class="pcc-name">${esc(r.name)}</span>${isOverdue(r)?' <span class="pcc-dot-od" title="Overdue"></span>':""}`;
+      case "name": return `${(Date.now()-(Number(r.created)||0))<172800000?'<span class="pcc-new">NEW</span> ':""}<span class="pcc-name">${esc(r.name)}</span>${isOverdue(r)?' <span class="pcc-dot-od" title="Overdue"></span>':""}`;
       case "campus": return r.campus?`<span class="pcc-soft">${esc(r.campus)}</span>`:'<span class="muted">—</span>';
       case "category": return `<span class="pcc-soft">${esc(procListName(r.listId))}</span>`;
       case "supplier": return esc(r.supplier)||'<span class="muted">—</span>';
@@ -1966,7 +1979,8 @@ function openProcDrawer(id){
      ${sec("Activity History", (r.history&&r.history.length)?r.history.slice().reverse().map(h=>`<div class="pcc-hist"><span>${esc(h.action||"")}</span><span class="muted">${esc(h.by||"")} · ${fmtStamp(h.at)}</span></div>`).join(""):'<p class="muted" style="font-size:12.5px">No activity recorded yet.</p>')}
    </div>
    <div class="pcc-drawer-foot">
-     ${isViewer()?"":`<button class="btn btn-ghost btn-sm" onclick="procDuplicate('${r.id}')">Duplicate</button>
+     ${isViewer()?"":`<button class="btn btn-primary btn-sm" style="margin-right:auto" onclick="closeProcDrawer();createPOFromRecord('${r.id}')">Create Purchase Order</button>
+     <button class="btn btn-ghost btn-sm" onclick="procDuplicate('${r.id}')">Duplicate</button>
      <button class="btn btn-ghost btn-sm" onclick="procCloseRecord('${r.id}')">Close Record</button>`}
      <button class="btn btn-ghost btn-sm" onclick="procDrawerPDF('${r.id}')">Download PDF</button>
      ${isViewer()?"":`<button class="btn btn-primary btn-sm" onclick="closeProcDrawer();openRecordForm('procurement','${r.id}')">Edit</button>`}
@@ -2437,6 +2451,7 @@ async function doSaveRecord(set,id){
     // jump to the list the record was saved to, so it's always visible (and never hidden by the current filter)
     if(obj.listId && _procListId!=="all" && _procListId!==obj.listId) _procListId=obj.listId;
     renderProcurement(); buildNav();
+    if(!id){ try{ openProcDrawer(obj.id); toast("Record created","It's highlighted at the top of the list — you can create its Purchase Order right from this panel.","ok",6000); }catch(e){} }
   } else { paintTable(set); buildNav(); }
 }
 
