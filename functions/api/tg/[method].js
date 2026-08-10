@@ -1,6 +1,7 @@
 /* Telegram proxy: the bot token (TG_TOKEN) lives ONLY in Cloudflare environment
    variables. The browser calls /api/tg/sendMessage etc.; the token is injected
-   server-side. Both JSON bodies and multipart uploads (PDFs) pass straight through. */
+   server-side. The body is BUFFERED and forwarded as bytes — works identically
+   for JSON payloads and multipart uploads (PDF documents). */
 import { requireAuth } from "../_auth.js";
 
 const ALLOWED = new Set(["sendMessage", "sendDocument", "getMe"]);
@@ -11,17 +12,27 @@ export async function onRequestPost(ctx) {
   if (authFail) return authFail;
   const method = String(params.method || "").replace(/[^A-Za-z]/g, "");
   if (!ALLOWED.has(method)) {
-    return new Response(JSON.stringify({ ok: false, description: "method_not_allowed" }),
-      { status: 400, headers: { "Content-Type": "application/json" } });
+    return json({ ok: false, description: "method_not_allowed" }, 400);
   }
   if (!env.TG_TOKEN) {
-    return new Response(JSON.stringify({ ok: false, description: "proxy_not_configured" }),
-      { status: 500, headers: { "Content-Type": "application/json" } });
+    return json({ ok: false, description: "proxy_not_configured" }, 500);
   }
-  const url = "https://api.telegram.org/bot" + env.TG_TOKEN + "/" + method;
-  const init = { method: "POST", body: request.body };
-  const ct = request.headers.get("Content-Type");
-  if (ct) init.headers = { "Content-Type": ct };
-  const resp = await fetch(url, init);
-  return new Response(await resp.text(), { status: resp.status, headers: { "Content-Type": "application/json" } });
+  try {
+    const bodyBytes = await request.arrayBuffer();               // buffer, don't stream
+    const init = { method: "POST" };
+    if (bodyBytes && bodyBytes.byteLength) {
+      init.body = bodyBytes;
+      const ct = request.headers.get("Content-Type");
+      if (ct) init.headers = { "Content-Type": ct };
+    }
+    const resp = await fetch("https://api.telegram.org/bot" + env.TG_TOKEN + "/" + method, init);
+    const text = await resp.text();
+    return new Response(text, { status: resp.status, headers: { "Content-Type": "application/json" } });
+  } catch (e) {
+    console.log("tg proxy error:", String(e && e.message || e));
+    return json({ ok: false, description: "upstream_failed" }, 502);
+  }
+}
+function json(o, status) {
+  return new Response(JSON.stringify(o), { status: status || 200, headers: { "Content-Type": "application/json" } });
 }
