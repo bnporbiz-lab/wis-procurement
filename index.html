@@ -2104,13 +2104,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.9.6";
+const APP_VERSION = "v8.9.7";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.9.7: PO linkage integrity — the record drawer footer is now linkage-aware (View Purchase Order (no) when a PO exists via fromRecord or legacy rec.po, Create only when none); duplicate PO creation is HARD-BLOCKED for every role before a number is allocated (the existing PO opens instead); Child Outstanding now = max(0, Actual Amount − Paid), consistent with the Parent summary — no committed fallback, standalone formula unchanged",
     "v8.9.6: PO Preparer gate unified and made identity-robust — the SAME isPOPreparer() check now gates the PO list submit action AND the detail-modal Submit/Revise buttons; the identity match is case-insensitive on the legacy ID with a display-name fallback, fixing the detail button missing for Chan Bunny (production legacy ID casing)",
     "v8.9.5: STRICT NAMED two-step PO approval routing — Submit for Approval belongs to the designated PO Preparer (Chan Bunny) alone: hidden and client-guarded for Entry AND for any other admin; Lav Sreynet approves/rejects when Pending Approval; Entry keeps viewing and editing permitted operational fields",
     "v8.9.4: Child → PO assignment inheritance fixed — the PO form now shows the Child's assignee (e.g. OUK THOEUN — Purchase Supervisor) instead of '— unassigned —'; the control stays locked for Entry, Admin/Super still defaults to the Child's assignee and may change it",
@@ -3655,7 +3656,7 @@ function openProcDrawer(id){
      ${sec("Supplier Evaluation", row("Supplier",esc(r.supplier))+row("Category",esc(r.category)))}
      ${sec("Approval", row("Current Stage",esc(r.status||procStage(r)))+row("Confirmed Date",fmtDateUS(r.confirm)))}
      ${sec("Purchase Order", row("PO Number",esc(recPoNo(r))))}
-     ${sec("Payment", row("Deposit",r.deposit?usd(r.deposit):"")+row("Deposit Invoice #",esc(r.depositInv))+row("Final Payment",r.finalPay?usd(r.finalPay):"")+row("Final Invoice #",esc(r.finalInv))+row("Total Paid",usd(paid))+row("Outstanding",usd(Math.max(0,(Number(r.budget)||0)-paid))))}
+     ${sec("Payment", row("Deposit",r.deposit?usd(r.deposit):"")+row("Deposit Invoice #",esc(r.depositInv))+row("Final Payment",r.finalPay?usd(r.finalPay):"")+row("Final Invoice #",esc(r.finalInv))+row("Total Paid",usd(paid))+row("Outstanding",usd(procIsChild(r)?Math.max(0,(Number(r.actualAmount)||0)-paid):Math.max(0,(Number(r.budget)||0)-paid))))}
      ${sec("Delivery &amp; Receiving", row("Stage",esc(r.status||procStage(r)))+row("Confirmed / Received",fmtDateUS(r.confirm)))}
      ${procUnitOf(r)?sec("Unit Service History", procUnitHistoryHTML(procUnitOf(r), r.id, "closeProcDrawer();")):''}
      ${sec("Line Items", (r.items&&r.items.length)?`<table class="pcc-mini"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>${r.items.map(it=>`<tr><td>${esc(it.desc)}</td><td class="num">${it.qty}</td><td class="num">${usd(it.price)}</td><td class="num">${usd((it.qty||0)*(it.price||0))}</td></tr>`).join("")}</tbody></table>`:'<p class="muted" style="font-size:12.5px">No line items.</p>')}
@@ -3664,7 +3665,9 @@ function openProcDrawer(id){
      ${sec("Activity History", (r.history&&r.history.length)?r.history.slice().reverse().map(h=>`<div class="pcc-hist"><span>${esc(h.action||"")}</span><span class="muted">${esc(h.by||"")} · ${fmtStamp(h.at)}</span></div>`).join(""):'<p class="muted" style="font-size:12.5px">No activity recorded yet.</p>')}
    </div>
    <div class="pcc-drawer-foot">
-     ${(isViewer()||isEntry()||procIsParent(r))?"":`<button class="btn btn-primary btn-sm" style="margin-right:auto" onclick="closeProcDrawer();createPOFromRecord('${r.id}')">Create Purchase Order</button>`}
+     ${(function(){ if(procIsParent(r)) return ""; const lp=recLinkedPO(r);
+       if(lp) return `<button class="btn btn-ghost btn-sm" style="margin-right:auto" onclick="closeProcDrawer();viewPO('${lp.id}')">View Purchase Order (${esc(lp.poNo||"")})</button>`;
+       return (isViewer()||isEntry())?"":`<button class="btn btn-primary btn-sm" style="margin-right:auto" onclick="closeProcDrawer();createPOFromRecord('${r.id}')">Create Purchase Order</button>`; })()}
      ${(!isViewer()&&!isEntry()&&procType(r)==="standalone")?`<button class="btn btn-ghost btn-sm" onclick="convertToParent('${r.id}')">Convert to Parent</button>`:""}
      ${_canDup?`<button class="btn btn-ghost btn-sm" onclick="procDuplicate('${r.id}')">Duplicate</button>`:""}
      ${_canMut?`<button class="btn btn-ghost btn-sm" onclick="procCloseRecord('${r.id}')">Close Record</button>`:""}
@@ -5099,6 +5102,10 @@ function poPRFileUrl(p){
 function createPOFromRecord(recId){
   const r=DB.procurement.find(x=>x.id===recId);
   if(!r){ toast("Record not found","","err"); return; }
+  /* v8.9.7: HARD duplicate block for every role — one record, one PO. Runs before
+     any PO number is allocated, and opens the existing PO instead. */
+  { const lp=recLinkedPO(r);
+    if(lp){ toast("A Purchase Order already exists for this record: "+(lp.poNo||lp.id),"Opening the existing PO instead — a record carries exactly one PO.","err",8000); try{ closeProcDrawer(); }catch(e){} try{ closeModal(); }catch(e){} viewPO(lp.id); return; } }
   if(procIsParent(r)){ toast("POs are raised from Children","A Parent carries the estimate; open a Child (supplier-level purchase) and create the PO there.","err",8000); return; }
   if(typeof isEntrySession==="function" && isEntrySession() && !entryCanEditRecord(r)){ toast("Not assigned to you","You can only raise a PO for a record assigned to you.","err",7000); return; }
   // Split quote field into number + description if it contains a comma/text
@@ -5503,6 +5510,9 @@ function procTopLevel(){ return (DB.procurement||[]).filter(r=>!procIsChild(r));
    Entry sessions never write rec.po (it is server-protected for them); the linkage
    via fromRecord keeps every device consistent with the cloud. */
 function recPoNo(r){ if(r&&r.po&&String(r.po).trim()) return r.po; const l=r?(DB.po||[]).find(p=>p&&p.fromRecord===r.id):null; return (l&&l.poNo)||""; }
+/* v8.9.7: the linked PO document for a record — fromRecord linkage first (entry-created
+   POs never write rec.po), then the legacy rec.po number match (old standalones). */
+function recLinkedPO(r){ if(!r) return null; return (DB.po||[]).find(p=>p&&p.fromRecord===r.id) || (r.po&&String(r.po).trim()?(DB.po||[]).find(p=>p&&p.poNo===r.po):null) || null; }
 function procChildrenOf(parentDocId){ return (DB.procurement||[]).filter(x=>procIsChild(x)&&x.parentDocId===parentDocId); }
 function childRef(r){ const p=DB.procurement.find(x=>x.id===r.parentDocId); const base=(p&&p.pr)||(p&&p.id)||r.parentDocId||"?"; return base+"-C"+String(r.childSeq||0).padStart(2,"0"); }
 function parentSummary(p){
