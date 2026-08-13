@@ -988,7 +988,7 @@ let DB = null;
 function defaultDB(){
   return {
     users:[{id:"super admin", password:"Admin@123", name:"Super Admin", role:"superadmin", created:Date.now()}],
-    procurement:[], projects:[], maintenance:[], suppliers:[], budget:[], po:[], stock:[], uniform:[], gepUniform:[], construction:[], procurementLists:[], maintQuarters:[], maintPrices:{}, maintCampuses:[], acUnits:[], acRecords:[], acCorrective:[], poItemCatalog:{}, acSpareRequests:[], acSpareReceipts:[], acReplacementRecords:[], acSpareAuditLogs:[], acTasks:[], prIntake:[],
+    procurement:[], quoteEvals:[], projects:[], maintenance:[], suppliers:[], budget:[], po:[], stock:[], uniform:[], gepUniform:[], construction:[], procurementLists:[], maintQuarters:[], maintPrices:{}, maintCampuses:[], acUnits:[], acRecords:[], acCorrective:[], poItemCatalog:{}, acSpareRequests:[], acSpareReceipts:[], acReplacementRecords:[], acSpareAuditLogs:[], acTasks:[], prIntake:[],
     settings:{currency:"USD", orgName:"WESTEC Procurement Dept."}
   };
 }
@@ -1174,7 +1174,7 @@ function dbForSync(){
    a record deleted on one device stays deleted (and can't come
    back from another device's old copy).
 ============================================================ */
-const MERGE_LISTS=["procurement","projects","maintenance","suppliers","budget","po","stock","uniform","gepUniform","construction","procurementLists","maintQuarters","maintCampuses","acUnits","acRecords","acCorrective","acSpareRequests","acSpareReceipts","acReplacementRecords","acSpareAuditLogs","acTasks","prIntake","users"];
+const MERGE_LISTS=["procurement","quoteEvals","projects","maintenance","suppliers","budget","po","stock","uniform","gepUniform","construction","procurementLists","maintQuarters","maintCampuses","acUnits","acRecords","acCorrective","acSpareRequests","acSpareReceipts","acReplacementRecords","acSpareAuditLogs","acTasks","prIntake","users"];
 function _recStamp(r){ return Number(r&&(r.updated||r.receivedAt||r.created))||0; }
 function dbFingerprint(db){
   return MERGE_LISTS.map(k=>{ const a=Array.isArray(db&&db[k])?db[k]:[]; let m=0; a.forEach(r=>{ const s=_recStamp(r); if(s>m)m=s; }); return a.length+":"+m; }).join("|")
@@ -1522,11 +1522,16 @@ async function fbRebuildCacheFromCloud(opts){
   toast("Cache rebuilt from Firebase", "Authoritative cloud dataset loaded"+(strays?(" — "+strays+" stale local-only record(s) removed from this browser's cache"):" — this browser matched the cloud"), "ok", 9000);
   return true;
 }
+/* v8.10.0 hardening: EVERY known file-reference array is sanitized to metadata
+   before any Firestore write — inline base64 (the IndexedDB-failure fallback)
+   must never reach the cloud document. Binaries live in Firebase Storage. */
+const FILE_REF_KEYS=["files","fileOriginal","fileRevised"];
+function fbFileRefMeta(f){ return {name:(f&&f.name)||null,size:(f&&f.size)||0,type:(f&&f.type)||null,fileId:(f&&f.fileId)||null,storagePath:(f&&f.storagePath)||null,url:(f&&f.url)||null,uploadedAt:(f&&f.uploadedAt)||null,uploadedBy:(f&&f.uploadedBy)||null}; }
 function fbStripFiles(r){
   const c=JSON.parse(JSON.stringify(r));
   (function walk(n){ if(!n||typeof n!=="object")return;
     if(Array.isArray(n)){ n.forEach(walk); return; }
-    Object.keys(n).forEach(k=>{ if(k==="files"&&Array.isArray(n[k])) n[k]=n[k].map(f=>({name:(f&&f.name)||null,size:(f&&f.size)||0,type:(f&&f.type)||null,fileId:(f&&f.fileId)||null,storagePath:(f&&f.storagePath)||null,url:(f&&f.url)||null,uploadedAt:(f&&f.uploadedAt)||null,uploadedBy:(f&&f.uploadedBy)||null})); else walk(n[k]); });
+    Object.keys(n).forEach(k=>{ if(FILE_REF_KEYS.includes(k)&&Array.isArray(n[k])) n[k]=n[k].map(fbFileRefMeta); else walk(n[k]); });
   })(c);
   return c;
 }
@@ -2104,13 +2109,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.9.7";
+const APP_VERSION = "v8.10.0";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.10.0: Quote Evaluation & Bidder Selection — optional, independent processes (all four Evaluation×PO combinations valid); per-record evaluation with unlimited bidders, item-by-item comparison with auto totals and lowest-quote highlight (never auto-awarded); Admin/Super confirm the winning supplier with required justification; Child handoff sets Quotation=original and Committed=award (Parent budget never touched); Standalone stores the award separately (Budget never overwritten) and prefers it for PO prefill; selection locks once a PO is linked; Evaluation tab is a live workspace; stored in the new quoteEvals collection (synced + in backups)",
     "v8.9.7: PO linkage integrity — the record drawer footer is now linkage-aware (View Purchase Order (no) when a PO exists via fromRecord or legacy rec.po, Create only when none); duplicate PO creation is HARD-BLOCKED for every role before a number is allocated (the existing PO opens instead); Child Outstanding now = max(0, Actual Amount − Paid), consistent with the Parent summary — no committed fallback, standalone formula unchanged",
     "v8.9.6: PO Preparer gate unified and made identity-robust — the SAME isPOPreparer() check now gates the PO list submit action AND the detail-modal Submit/Revise buttons; the identity match is case-insensitive on the legacy ID with a display-name fallback, fixing the detail button missing for Chan Bunny (production legacy ID casing)",
     "v8.9.5: STRICT NAMED two-step PO approval routing — Submit for Approval belongs to the designated PO Preparer (Chan Bunny) alone: hidden and client-guarded for Entry AND for any other admin; Lav Sreynet approves/rejects when Pending Approval; Entry keeps viewing and editing permitted operational fields",
@@ -3377,6 +3383,7 @@ function renderProcurement(){
     <div class="pcc-tabs">
       ${PROC_TABS.map(t=>`<button class="pcc-tab${_procTab===t.id?' on':''}" onclick="_procTab='${t.id}';renderProcurement()">${t.label}<span class="pcc-tab-n">${tabCounts[t.id]||0}</span></button>`).join("")}
     </div>
+    ${_procTab==="evaluation"?qeWorkspaceHTML():""}
 
     <div class="pcc-filters">
       <input class="pcc-inp" id="pf_q" placeholder="Search records..." value="${esc(_procF.q)}" oninput="_procF.q=this.value;paintProcurement()">
@@ -3656,6 +3663,21 @@ function openProcDrawer(id){
      ${sec("Supplier Evaluation", row("Supplier",esc(r.supplier))+row("Category",esc(r.category)))}
      ${sec("Approval", row("Current Stage",esc(r.status||procStage(r)))+row("Confirmed Date",fmtDateUS(r.confirm)))}
      ${sec("Purchase Order", row("PO Number",esc(recPoNo(r))))}
+     ${procIsParent(r)?sec("Quote Evaluation (Children)",(function(){ const kids=(DB.procurement||[]).filter(x=>procIsChild(x)&&x.parentDocId===r.id);
+        const selN=kids.filter(k=>{const e=qeFor(k.id);return e&&e.selection;}).length;
+        const evN=kids.filter(k=>{const e=qeFor(k.id);return e&&!e.selection;}).length;
+        return `<p style="font-size:12.5px;margin:0">${kids.length} Children · ${selN} Supplier Selected · ${evN} Under Evaluation</p>`; })())
+      :sec("Quote Evaluation",(function(){ const ev=qeFor(r.id);
+        if(!ev && r.evalRequired==="not_required") return `<p style="font-size:12.5px;margin:0"><b>Quote Evaluation: Not Required</b></p>`;
+        if(!ev && r.evalRequired!=="required") return `<p class="muted" style="font-size:12px;margin:0 0 6px">Legacy / Unspecified — no evaluation on file.</p>`+(qeCanPrepare(r)?`<button class="btn btn-ghost btn-sm" onclick="closeProcDrawer();openQuoteEval('${r.id}')">Open Quote Evaluation</button>`:"");
+        const low=ev?qeLowest(ev):null;
+        return row("Requirement",qeReqLabel(r))+row("Evaluation Status",esc(qeStatusOf(r)||"Not Started"))
+         +row("Number of Bidders",ev?String((ev.bidders||[]).length):"0")
+         +row("Technically Qualified",ev?String((ev.bidders||[]).filter(b=>b.qualified==="Yes").length):"0")
+         +row("Lowest Quote",low?("$"+(Number(low.amount)||0).toLocaleString("en-US",{minimumFractionDigits:2})):"—")
+         +row("Selected Supplier",ev&&ev.selection?esc(ev.selection.supplier):"—")
+         +row("Selected / Award Amount",ev&&ev.selection?("$"+(Number(ev.selection.amountFinal)||0).toLocaleString("en-US",{minimumFractionDigits:2})):"—")
+         +`<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" onclick="closeProcDrawer();openQuoteEval('${r.id}')">Open Quote Evaluation</button></div>`; })())}
      ${sec("Payment", row("Deposit",r.deposit?usd(r.deposit):"")+row("Deposit Invoice #",esc(r.depositInv))+row("Final Payment",r.finalPay?usd(r.finalPay):"")+row("Final Invoice #",esc(r.finalInv))+row("Total Paid",usd(paid))+row("Outstanding",usd(procIsChild(r)?Math.max(0,(Number(r.actualAmount)||0)-paid):Math.max(0,(Number(r.budget)||0)-paid))))}
      ${sec("Delivery &amp; Receiving", row("Stage",esc(r.status||procStage(r)))+row("Confirmed / Received",fmtDateUS(r.confirm)))}
      ${procUnitOf(r)?sec("Unit Service History", procUnitHistoryHTML(procUnitOf(r), r.id, "closeProcDrawer();")):''}
@@ -4046,6 +4068,7 @@ function openRecordForm(set,id,defaultStatus){
         ${isProc?"":`<div class="field"><label>Category</label><select id="f_category">${CATEGORIES.map(c=>`<option ${r?.category===c?'selected':''}>${c}</option>`).join("")}</select></div>`}
         ${field("PR Number","pr",r?.pr,false)}
         ${field("Quote Number","quote",r?.quote)}
+        ${set==="procurement"&&!(r&&procIsParent(r))?`<div class="field"><label>Quote Evaluation</label><select id="f_evalReq"><option value="">— Unspecified (legacy) —</option><option value="required" ${r?.evalRequired==="required"?"selected":""}>Required</option><option value="not_required" ${r?.evalRequired==="not_required"?"selected":""}>Not Required</option></select></div><div class="field"><label>Purchase Order Requirement</label><select id="f_poReq"><option value="">— Unspecified (legacy) —</option><option value="required" ${r?.poRequired==="required"?"selected":""}>Required</option><option value="not_required" ${r?.poRequired==="not_required"?"selected":""}>Not Required</option></select></div>`:""}
         ${set==="procurement"?`<div class="field"><label>PO Number <span class="muted" style="font-weight:400;font-size:11px">— auto-filled when a PO is issued</span></label><input id="f_po" value="${esc(r?.po||'')}" placeholder="e.g. 0826-012"></div>`:""}
         <div class="field"><label>Supplier</label><select id="f_supplier"><option value="">— Select —</option>${(r&&r.supplier&&!DB.suppliers.some(s=>s.name===r.supplier))?`<option selected>${esc(r.supplier)}</option>`:""}${DB.suppliers.map(s=>`<option ${r?.supplier===s.name?'selected':''}>${esc(s.name)}</option>`).join("")}</select></div>
         ${isProc?`<div class="field full"><label>Budget Items <span class="muted" style="font-weight:500">(Qty × Unit Price)</span></label>
@@ -4215,6 +4238,13 @@ async function doSaveRecord(set,id){
     created:id?prev.created:Date.now(), updated:Date.now()
   };
   if(prev && prev.prFileUrl) obj.prFileUrl=prev.prFileUrl;   // the Telegram PR file link travels through every edit
+  { // v8.10.0 process-requirement flags (independent, optional; absent = legacy/unspecified)
+    const eEl=document.getElementById("f_evalReq"), pEl=document.getElementById("f_poReq");
+    if(eEl){ if(eEl.value) obj.evalRequired=eEl.value; else if(prev&&prev.evalRequired) obj.evalRequired=prev.evalRequired; }
+    else if(prev&&prev.evalRequired) obj.evalRequired=prev.evalRequired;
+    if(pEl){ if(pEl.value) obj.poRequired=pEl.value; else if(prev&&prev.poRequired) obj.poRequired=prev.poRequired; }
+    else if(prev&&prev.poRequired) obj.poRequired=prev.poRequired;
+  }
   // ===== v8.9 structure: immutable once set; standalone stays field-absent =====
   if(prev){
     if(prev.recordType!=null) obj.recordType=prev.recordType; else delete obj.recordType;
@@ -5106,6 +5136,11 @@ function createPOFromRecord(recId){
      any PO number is allocated, and opens the existing PO instead. */
   { const lp=recLinkedPO(r);
     if(lp){ toast("A Purchase Order already exists for this record: "+(lp.poNo||lp.id),"Opening the existing PO instead — a record carries exactly one PO.","err",8000); try{ closeProcDrawer(); }catch(e){} try{ closeModal(); }catch(e){} viewPO(lp.id); return; } }
+  /* v8.10.0: a COMPLETED evaluation enhances the PO prefill (never a prerequisite):
+     Selected Supplier -> PO Supplier; for a Standalone without items, the final
+     award amount becomes the prefill line. Child amounts already flow through
+     committedAmount, which the selection handoff updated. */
+  const _qeSel=(function(){ const e=qeFor(r.id); return (e&&e.selection)?e.selection:null; })();
   if(procIsParent(r)){ toast("POs are raised from Children","A Parent carries the estimate; open a Child (supplier-level purchase) and create the PO there.","err",8000); return; }
   if(typeof isEntrySession==="function" && isEntrySession() && !entryCanEditRecord(r)){ toast("Not assigned to you","You can only raise a PO for a record assigned to you.","err",7000); return; }
   // Split quote field into number + description if it contains a comma/text
@@ -5120,7 +5155,7 @@ function createPOFromRecord(recId){
   } else if(Array.isArray(r.items)&&r.items.length){
     items=r.items.map(it=>({desc:it.desc||"",qty:Number(it.qty)||0,price:Number(it.price)||0}));
   } else {
-    items=[{desc:r.name||"", qty:1, price:budget}];
+    items=[{desc:r.name||"", qty:1, price:(_qeSel&&Number(_qeSel.amountFinal)>0)?Number(_qeSel.amountFinal):budget}];
   }
   const itemsTotal=items.reduce((a,it)=>a+(Number(it.qty)||0)*(Number(it.price)||0),0);
   const draft={
@@ -5128,7 +5163,7 @@ function createPOFromRecord(recId){
     pr: r.pr||"",
     quote: quoteNo,
     quoteDesc: quoteDesc || (r.remarks||""),
-    supplier: r.supplier||"",
+    supplier: (_qeSel&&_qeSel.supplier)?_qeSel.supplier:(r.supplier||""),
     campus: r.campus||"",
     status: "Draft",
     orderDate: new Date().toISOString().slice(0,10),
@@ -5513,6 +5548,25 @@ function recPoNo(r){ if(r&&r.po&&String(r.po).trim()) return r.po; const l=r?(DB
 /* v8.9.7: the linked PO document for a record — fromRecord linkage first (entry-created
    POs never write rec.po), then the legacy rec.po number match (old standalones). */
 function recLinkedPO(r){ if(!r) return null; return (DB.po||[]).find(p=>p&&p.fromRecord===r.id) || (r.po&&String(r.po).trim()?(DB.po||[]).find(p=>p&&p.poNo===r.po):null) || null; }
+/* ===== v8.10.0 Quote Evaluation =====
+   One evaluation per record: quoteEvals docId === procurement record id.
+   Evaluation and PO are INDEPENDENT OPTIONAL processes — neither is a
+   prerequisite for the other, and absence is not incompleteness. */
+function qeFor(recId){ return (DB.quoteEvals||[]).find(e=>e&&e.id===recId)||null; }
+function qeEligible(r){ return !!r && !procIsParent(r); }
+function qeBidderItemTotal(ev,bid){ let s=0; (ev.items||[]).forEach(it=>{ const q=(it.quotes||{})[bid]; if(q&&q.unitPrice!==""&&q.unitPrice!=null) s+=(Number(it.qty)||0)*(Number(q.unitPrice)||0); }); return s; }
+function qeBidderAmount(ev,b){ const f=Number(b.amountFinal); if(b.amountFinal!==""&&b.amountFinal!=null&&!isNaN(f)) return f; const o=Number(b.amountOriginal); if(b.amountOriginal!==""&&b.amountOriginal!=null&&!isNaN(o)) return o; const t=qeBidderItemTotal(ev,b.bid); return t||null; }
+function qeLowest(ev){
+  if(!ev||!(ev.bidders||[]).length) return null;
+  const pool=ev.bidders.filter(b=>b.qualified!==false&&b.qualified!=="No");
+  const use=(pool.length?pool:ev.bidders).map(b=>({b,amt:qeBidderAmount(ev,b)})).filter(x=>x.amt!=null&&x.amt>0);
+  if(!use.length) return null;
+  use.sort((a,b)=>a.amt-b.amt); return {bidder:use[0].b, amount:use[0].amt};
+}
+function qeReqLabel(r){ const v=r&&r.evalRequired; return v==="required"?"Required":(v==="not_required"?"Not Required":"Legacy / Unspecified"); }
+function qeStatusOf(r){ const ev=qeFor(r.id); if(ev) return ev.status||"Not Started"; return r.evalRequired==="required"?"Not Started":""; }
+function qeCanPrepare(r){ if(typeof isEntrySession==="function"&&isEntrySession()) return !!(r&&SESSION&&r.assignedToUid===SESSION.uid); return !isViewer(); }
+function qeSelectionLocked(r){ return !!recLinkedPO(r); }
 function procChildrenOf(parentDocId){ return (DB.procurement||[]).filter(x=>procIsChild(x)&&x.parentDocId===parentDocId); }
 function childRef(r){ const p=DB.procurement.find(x=>x.id===r.parentDocId); const base=(p&&p.pr)||(p&&p.id)||r.parentDocId||"?"; return base+"-C"+String(r.childSeq||0).padStart(2,"0"); }
 function parentSummary(p){
@@ -10897,6 +10951,212 @@ function renderBackup(){
   updateSyncStatusCard();
 }
 // Collect every fileId referenced anywhere in the DB (so backups can include the actual files)
+
+/* ================= v8.10.0 QUOTE EVALUATION & BIDDER SELECTION ================= */
+let _qe=null, _qeRecId=null;
+function qeNew(r){
+  return { id:r.id, recordId:r.id, recordType:procIsChild(r)?"child":"standalone", parentDocId:r.parentDocId||null,
+    status:"Not Started", bidders:[], items:(r.items&&r.items.length?r.items.map(it=>({desc:it.desc||it.name||"",qty:Number(it.qty)||1,quotes:{}})):[]),
+    selection:null,
+    createdByUid:(SESSION&&SESSION.uid)||null, createdById:(SESSION&&SESSION.id)||null, createdByName:(SESSION&&SESSION.name)||"",
+    assignedToUid:r.assignedToUid||null, assignedToId:r.assignedToId||null, assignedToName:r.assignedToName||null,
+    history:[], created:Date.now(), updated:Date.now() };
+}
+function qeUSD(v){ return "$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function openQuoteEval(recId){
+  const r=DB.procurement.find(x=>x.id===recId);
+  if(!r){ toast("Record not found","","err"); return; }
+  if(procIsParent(r)){ toast("Parents have no direct Quote Evaluation","Each Child carries its own evaluation; the Parent shows the aggregate.","err",7000); return; }
+  _qeRecId=recId;
+  _qe=JSON.parse(JSON.stringify(qeFor(recId)||qeNew(r)));
+  qeRender();
+}
+function qeCanEdit(){ const r=DB.procurement.find(x=>x.id===_qeRecId); return r?qeCanPrepare(r):false; }
+function qeRender(){
+  const r=DB.procurement.find(x=>x.id===_qeRecId); if(!r) return;
+  const ev=_qe, edit=qeCanEdit(), locked=qeSelectionLocked(r), lp=recLinkedPO(r);
+  const par=ev.recordType==="child"?DB.procurement.find(x=>x.id===ev.parentDocId):null;
+  const low=qeLowest(ev);
+  const info=(l,v)=>`<div style="min-width:150px"><div class="muted" style="font-size:10.5px;font-weight:700;letter-spacing:.3px">${l}</div><div style="font-size:12.5px;font-weight:600">${v||'—'}</div></div>`;
+  const statusOpts=["Not Started","Collecting Quotations","Under Evaluation","Supplier Selected"]
+    .filter(s=>edit && (!isEntrySession()||s!=="Supplier Selected") || s===(ev.status||"Not Started"))
+    .map(s=>`<option ${s===(ev.status||"Not Started")?"selected":""}>${s}</option>`).join("");
+  const bidCards=(ev.bidders||[]).map((b,i)=>{
+    const amt=qeBidderAmount(ev,b), isLow=low&&low.bidder.bid===b.bid;
+    const F=(l,k,type,extra)=>`<div class="field" style="min-width:130px"><label style="font-size:10.5px">${l}</label><input type="${type||'text'}" value="${esc(b[k]??"")}" ${edit?"":"disabled"} onchange="_qe.bidders[${i}].${k}=this.value" ${extra||""}></div>`;
+    const S=(l,k,opts)=>`<div class="field" style="min-width:110px"><label style="font-size:10.5px">${l}</label><select ${edit?"":"disabled"} onchange="_qe.bidders[${i}].${k}=this.value">${opts.map(o=>`<option ${String(b[k])===o?"selected":""}>${o}</option>`).join("")}</select></div>`;
+    const files=(k,label)=>`<div style="min-width:170px"><div class="muted" style="font-size:10.5px;font-weight:700">${label}</div>
+      ${(b[k]||[]).map((f,fi)=>`<div style="font-size:11.5px"><a href="#" onclick="previewRef(_qe.bidders[${i}].${k}[${fi}]);return false">${esc(f.name||"file")}</a>${edit?` <a href="#" style="color:#dc2626" onclick="_qe.bidders[${i}].${k}.splice(${fi},1);qeRender();return false">×</a>`:""}</div>`).join("")||'<span class="muted" style="font-size:11px">—</span>'}
+      ${edit?`<input type="file" style="font-size:10.5px;margin-top:3px" onchange="qeAttach(${i},'${k}',this)">`:""}</div>`;
+    return `<div style="border:1px solid ${isLow?"#059669":"var(--border)"};border-radius:10px;padding:10px 12px;margin-bottom:10px;${isLow?"background:#05966908":""}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <b style="font-size:13px">${esc(b.supplier||("Bidder "+(i+1)))}</b>
+        ${isLow?'<span class="chip-cat" style="background:#05966918;color:#047857;font-weight:700">Lowest Quotation</span>':""}
+        ${b.qualified==="No"?'<span class="chip-cat" style="background:#dc262618;color:#b91c1c">Not Qualified</span>':""}
+        <span class="muted" style="margin-left:auto;font-weight:700">${amt!=null?qeUSD(amt):"—"}</span>
+        ${edit?`<button class="act-btn" title="Remove bidder" onclick="_qe.bidders.splice(${i},1);qeRender()" style="color:#dc2626">✕</button>`:""}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <div class="field" style="min-width:180px"><label style="font-size:10.5px">Supplier Name</label><input list="qeSupList" value="${esc(b.supplier||"")}" ${edit?"":"disabled"} onchange="_qe.bidders[${i}].supplier=this.value"></div>
+        ${F("Quotation #","quoteNo")}${F("Quotation Date","quoteDate","date")}${F("Currency","currency")}
+        ${F("Original Quoted Amount","amountOriginal","number")}${F("Discount / Negotiation","discount")}${F("Final / Negotiated Amount","amountFinal","number")}
+        ${F("Delivery / Lead Time","delivery")}${F("Payment Terms","paymentTerms")}${F("Warranty","warranty")}${F("Quotation Validity","validity")}
+        ${S("Technical Compliance","technical",["","Yes","Partial","No"])}${S("Qualified","qualified",["","Yes","No"])}
+        ${F("Technical Remarks","technicalRemarks")}${F("Commercial Remarks","commercialRemarks")}
+        ${files("fileOriginal","Original Quotation")}${files("fileRevised","Revised / Final Quotation")}
+      </div></div>`;
+  }).join("");
+  // item-by-item comparison
+  const bl=ev.bidders||[];
+  const cmpHead=`<tr><th style="min-width:180px">Description / Specification</th><th class="n">Qty</th>${bl.map(b=>`<th colspan="3" style="min-width:220px;border-left:2px solid var(--border)">${esc(b.supplier||"Bidder")}</th>`).join("")}${edit?"<th></th>":""}</tr>
+    <tr><th></th><th></th>${bl.map(()=>`<th style="border-left:2px solid var(--border)">Technical</th><th class="n">Unit Price</th><th class="n">Total</th>`).join("")}${edit?"<th></th>":""}</tr>`;
+  const cmpRows=(ev.items||[]).map((it,ri)=>`<tr>
+      <td>${edit?`<input value="${esc(it.desc||"")}" onchange="_qe.items[${ri}].desc=this.value" style="width:100%">`:esc(it.desc||"")}</td>
+      <td class="n">${edit?`<input type="number" value="${esc(it.qty??1)}" style="width:60px" onchange="_qe.items[${ri}].qty=this.value;qeRender()">`:esc(it.qty??"")}</td>
+      ${bl.map(b=>{ const q=(it.quotes||{})[b.bid]||{}; const tot=(q.unitPrice!==""&&q.unitPrice!=null)?(Number(it.qty)||0)*(Number(q.unitPrice)||0):null;
+        return `<td style="border-left:2px solid var(--border)">${edit?`<select onchange="qeSetQ(${ri},'${b.bid}','technical',this.value)"><option></option>${["Yes","Partial","No"].map(o=>`<option ${q.technical===o?"selected":""}>${o}</option>`).join("")}</select>`:esc(q.technical||"—")}</td>
+        <td class="n">${edit?`<input type="number" value="${esc(q.unitPrice??"")}" style="width:85px" onchange="qeSetQ(${ri},'${b.bid}','unitPrice',this.value)">`:(q.unitPrice!=null&&q.unitPrice!==""?qeUSD(q.unitPrice):"—")}</td>
+        <td class="n"><b>${tot!=null?qeUSD(tot):"—"}</b></td>`; }).join("")}
+      ${edit?`<td><button class="act-btn" style="color:#dc2626" onclick="_qe.items.splice(${ri},1);qeRender()">✕</button></td>`:""}</tr>`).join("");
+  const cmpTotals=`<tr style="font-weight:800;background:var(--surface-2)"><td>TOTAL</td><td></td>${bl.map(b=>`<td style="border-left:2px solid var(--border)"></td><td></td><td class="n">${qeUSD(qeBidderItemTotal(ev,b.bid))}</td>`).join("")}${edit?"<td></td>":""}</tr>`;
+  // selection
+  const sel=ev.selection;
+  const canSelect=!isEntrySession()&&!isViewer()&&edit&&!locked;
+  const selHTML= sel? `<div style="border:1px solid #05966955;background:#05966908;border-radius:10px;padding:10px 12px">
+      <b style="color:#047857">Selected Supplier: ${esc(sel.supplier)}</b> ${locked?'<span class="chip-cat" style="background:#6b728018;color:#374151">🔒 Locked — linked PO '+esc(lp?lp.poNo:"")+'</span>':""}
+      <div style="font-size:12px;margin-top:4px">Original ${qeUSD(sel.amountOriginal)} → <b>Award ${qeUSD(sel.amountFinal)}</b> · ${esc((sel.reasons||[]).join(", "))} · by ${esc(sel.byName||"")} on ${sel.date?new Date(sel.date).toLocaleDateString():""}</div>
+      <div style="font-size:12px;margin-top:2px"><i>${esc(sel.justification||"")}</i></div>
+      ${(!locked&&canSelect)?`<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="qeClearSelection()">Clear Selection</button>`:""}</div>`
+    : (canSelect&&bl.length? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
+      <div class="field" style="min-width:200px"><label>Select Supplier</label><select id="qe_sel_bid">${bl.map(b=>`<option value="${esc(b.bid)}">${esc(b.supplier||"Bidder")} — ${qeBidderAmount(ev,b)!=null?qeUSD(qeBidderAmount(ev,b)):"n/a"}</option>`).join("")}</select></div>
+      <div class="field" style="min-width:220px"><label>Selection Reasons</label><select id="qe_sel_reasons" multiple size="4">${["Lowest Evaluated Price","Technical Compliance","Better Quality","Better Delivery","Better Payment Terms","Better Warranty","Previous Performance","Negotiated Price","Other"].map(o=>`<option>${o}</option>`).join("")}</select></div>
+      <div class="field" style="flex:1;min-width:240px"><label>Supplier Selection Justification (required)</label><input id="qe_sel_just" placeholder="Why this supplier was selected"></div>
+      <button class="btn btn-primary" onclick="qeConfirmSelection()">Confirm Selected Supplier…</button></div>`
+    : `<span class="muted" style="font-size:12px">${isEntrySession()?"Bidder selection is finalized by Admin / Super Admin.":(locked?"Selection is locked — a Purchase Order is already linked.":"No bidders yet.")}</span>`);
+  openModal(`<div class="modal-head"><h3>Quote Evaluation — ${esc(procDisplayId(r))}</h3><button class="act-btn" onclick="closeModal()">✕</button></div><div class="modal-body">
+    <datalist id="qeSupList">${(DB.suppliers||[]).map(s=>`<option value="${esc(s.name||s.id||"")}">`).join("")}</datalist>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+      ${info("Procurement ID",esc(procDisplayId(r)))}${info("PR Number",esc(r.pr||""))}${info("Campus / Project",esc(r.campus||""))}
+      ${info("Item / Scope",esc(r.name||""))}${info("Category",esc(r.category||r.listId||""))}${info("Responsible",esc(r.assignedToName||r.responsible||""))}
+      ${par?info("Parent",esc(procDisplayId(par))):""}
+      ${info("Requirement",qeReqLabel(r))}
+      <div class="field" style="min-width:170px"><label style="font-size:10.5px">Evaluation Status</label><select ${edit?"":"disabled"} onchange="_qe.status=this.value">${statusOpts}</select></div>
+    </div>
+    <h4 style="margin:8px 0 6px">Bidders (${bl.length})</h4>
+    ${bidCards||'<p class="muted" style="font-size:12px">No bidders yet.</p>'}
+    ${edit?`<button class="btn btn-ghost btn-sm" onclick="qeAddBidder()">+ Add Bidder</button>`:""}
+    <h4 style="margin:14px 0 6px">Item-by-Item Comparison ${low?`<span class="muted" style="font-weight:400;font-size:11.5px">· lowest quotation: <b style="color:#047857">${esc(low.bidder.supplier||"")} ${qeUSD(low.amount)}</b> (never auto-awarded)</span>`:""}</h4>
+    <div style="overflow:auto;border:1px solid var(--border);border-radius:10px"><table class="tbl" style="font-size:11.5px;min-width:100%">${cmpHead}${cmpRows}${cmpTotals}</table></div>
+    ${edit?`<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="qeAddItem()">+ Add Item</button>`:""}
+    <h4 style="margin:14px 0 6px">Supplier Selection</h4>
+    ${selHTML}</div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Close</button>${edit?`<button class="btn btn-primary" onclick="qeSave()">Save Evaluation</button>`:""}</div>`,{size:"wide"});
+}
+/* Application safety limits (not a schema redesign): a full evaluation at these
+   caps stays far below Firestore's 1 MiB document limit. */
+const QE_MAX_BIDDERS=15, QE_MAX_ITEMS=200, QE_MAX_LONG=1000, QE_MAX_TEXT=300;
+function qeAddBidder(){
+  if((_qe.bidders||[]).length>=QE_MAX_BIDDERS){ toast("Bidder limit reached","A quote evaluation supports up to "+QE_MAX_BIDDERS+" bidders.","err",7000); return; }
+  _qe.bidders.push({bid:'b'+Math.random().toString(36).slice(2,8),supplier:'',quoteNo:'',quoteDate:'',currency:'USD',amountOriginal:'',discount:'',amountFinal:'',delivery:'',paymentTerms:'',warranty:'',validity:'',technical:'',technicalRemarks:'',commercialRemarks:'',qualified:'',fileOriginal:[],fileRevised:[]});
+  qeRender();
+}
+function qeAddItem(){
+  if((_qe.items||[]).length>=QE_MAX_ITEMS){ toast("Item limit reached","A comparison supports up to "+QE_MAX_ITEMS+" line items.","err",7000); return; }
+  _qe.items.push({desc:'',qty:1,quotes:{}}); qeRender();
+}
+function qeValidateLimits(ev){
+  if((ev.bidders||[]).length>QE_MAX_BIDDERS) return "Too many bidders (max "+QE_MAX_BIDDERS+").";
+  if((ev.items||[]).length>QE_MAX_ITEMS) return "Too many comparison items (max "+QE_MAX_ITEMS+").";
+  const LONG=["technicalRemarks","commercialRemarks"], TXT=["supplier","quoteNo","currency","discount","delivery","paymentTerms","warranty","validity"];
+  for(const b of (ev.bidders||[])){
+    for(const k of LONG) if(String(b[k]||"").length>QE_MAX_LONG) return "Bidder \""+(b.supplier||"")+"\": "+k+" exceeds "+QE_MAX_LONG+" characters.";
+    for(const k of TXT) if(String(b[k]||"").length>QE_MAX_TEXT) return "Bidder \""+(b.supplier||"")+"\": "+k+" exceeds "+QE_MAX_TEXT+" characters.";
+  }
+  for(const it of (ev.items||[])) if(String(it.desc||"").length>QE_MAX_TEXT) return "Item description exceeds "+QE_MAX_TEXT+" characters.";
+  return null;
+}
+function qeSetQ(ri,bid,k,v){ const it=_qe.items[ri]; it.quotes=it.quotes||{}; it.quotes[bid]=it.quotes[bid]||{}; it.quotes[bid][k]=v; if(k==="unitPrice") qeRender(); }
+async function qeAttach(i,k,inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=async e=>{ const ref=await persistStagedFile({name:f.name,size:f.size,type:f.type,data:e.target.result}); _qe.bidders[i][k]=_qe.bidders[i][k]||[]; _qe.bidders[i][k].push(ref); qeRender(); };
+  rd.readAsDataURL(f);
+}
+async function qeSave(silent){
+  const r=DB.procurement.find(x=>x.id===_qeRecId); if(!r) return;
+  if(!qeCanPrepare(r)){ toast("Not permitted","","err"); return; }
+  const ev=_qe;
+  const lim=qeValidateLimits(ev);
+  if(lim){ toast("Not saved",lim+" Shorten the content — nothing is truncated automatically.","err",9000); return; }
+  ev.updated=Date.now();
+  if(isEntrySession()&&ev.status==="Supplier Selected"&&!(qeFor(ev.id)&&qeFor(ev.id).status==="Supplier Selected")){ ev.status="Under Evaluation"; }
+  ev.history=ev.history||[]; ev.history.push({by:(SESSION&&SESSION.name)||"",at:Date.now(),action:"Evaluation saved ("+(ev.bidders||[]).length+" bidders)"});
+  const i=DB.quoteEvals.findIndex(e=>e.id===ev.id);
+  if(i>=0) DB.quoteEvals[i]=JSON.parse(JSON.stringify(ev)); else DB.quoteEvals.push(JSON.parse(JSON.stringify(ev)));
+  saveDB();
+  if(typeof isEntrySession==="function"&&isEntrySession()&&typeof fbEntryPushRecord==="function") fbEntryPushRecord("quoteEvals", ev.id);
+  if(!silent){ toast("Quote evaluation saved","","ok"); qeRender(); }
+  if(typeof renderProcurement==="function"&&document.getElementById("procDrawer")) try{ renderProcurement(); }catch(e){}
+}
+function qeClearSelection(){
+  const r=DB.procurement.find(x=>x.id===_qeRecId);
+  if(qeSelectionLocked(r)){ toast("Locked","A Purchase Order is already linked; the selection cannot be changed.","err",7000); return; }
+  if(isEntrySession()){ toast("Not permitted","","err"); return; }
+  _qe.selection=null; _qe.status="Under Evaluation"; qeRender();
+}
+function qeConfirmSelection(){
+  const r=DB.procurement.find(x=>x.id===_qeRecId); if(!r) return;
+  if(isEntrySession()||isViewer()){ toast("Not permitted","Only Admin / Super Admin finalize the winning supplier.","err",7000); return; }
+  if(qeSelectionLocked(r)){ toast("Locked","A Purchase Order is already linked; the selection cannot be changed.","err",7000); return; }
+  const bid=document.getElementById("qe_sel_bid").value;
+  const b=(_qe.bidders||[]).find(x=>x.bid===bid); if(!b){ toast("Pick a bidder","","err"); return; }
+  const reasons=Array.from(document.getElementById("qe_sel_reasons").selectedOptions).map(o=>o.value);
+  const just=(document.getElementById("qe_sel_just").value||"").trim();
+  if(!just){ toast("Justification required","Enter the supplier selection justification.","err",7000); return; }
+  if(just.length>QE_MAX_LONG){ toast("Justification too long","Maximum "+QE_MAX_LONG+" characters.","err",7000); return; }
+  const orig=Number(b.amountOriginal)||qeBidderAmount(_qe,b)||0;
+  const award=(b.amountFinal!==""&&b.amountFinal!=null&&!isNaN(Number(b.amountFinal)))?Number(b.amountFinal):(qeBidderAmount(_qe,b)||orig);
+  confirmModal("Confirm selected supplier",
+    `Award to <b>${esc(b.supplier||"")}</b>?<br>Original ${qeUSD(orig)} → Final / Award <b>${qeUSD(award)}</b><br><br>`+
+    (_qe.recordType==="child"?`The Child's <b>Quotation Amount</b> becomes ${qeUSD(orig)} and <b>Committed Amount</b> becomes ${qeUSD(award)}. The Parent budget is never changed.`:`The record's Supplier becomes ${esc(b.supplier||"")}; the award is stored separately — the Budget is NOT overwritten.`),
+    ()=>{ qeApplySelection(r,b,orig,award,reasons,just); }, "Confirm Selection", false, ()=>{});
+}
+function qeApplySelection(r,b,orig,award,reasons,just){
+  _qe.selection={ bidderId:b.bid, supplier:b.supplier||"", amountOriginal:orig, amountFinal:award, date:Date.now(),
+    byUid:(SESSION&&SESSION.uid)||null, byId:(SESSION&&SESSION.id)||null, byName:(SESSION&&SESSION.name)||"", reasons, justification:just };
+  _qe.status="Supplier Selected";
+  _qe.history=_qe.history||[]; _qe.history.push({by:(SESSION&&SESSION.name)||"",at:Date.now(),action:"Supplier selected: "+(b.supplier||"")+" — award "+award});
+  // financial handoff
+  r.history=r.history||[];
+  if(procIsChild(r)){
+    r.quotationAmount=orig; r.committedAmount=award;
+    r.history.push({by:(SESSION&&SESSION.name)||"",at:Date.now(),action:"Quote evaluation selected "+(b.supplier||"")+": quotation "+orig+", committed "+award});
+    if(b.supplier) r.supplier=b.supplier;
+  } else {
+    if(b.supplier) r.supplier=b.supplier;
+    r.selectedAwardAmount=award;   // distinct — Budget is never overwritten
+    r.history.push({by:(SESSION&&SESSION.name)||"",at:Date.now(),action:"Quote evaluation selected "+(b.supplier||"")+": award "+award+" (budget unchanged)"});
+  }
+  r.updated=Date.now();
+  saveDB();
+  qeSave(true);
+  toast("Supplier selected", (b.supplier||"")+" — award "+qeUSD(award), "ok", 7000);
+  qeRender();
+}
+/* Evaluation workspace table (procurement page, Evaluation tab) */
+function qeWorkspaceHTML(){
+  const rows=(DB.procurement||[]).filter(r=>!procIsParent(r)&&(r.evalRequired==="required"||qeFor(r.id)||procTabOf(r)==="evaluation"));
+  if(!rows.length) return `<div class="muted" style="font-size:12px;padding:8px 2px">No records require or carry a quote evaluation yet. Mark a record's <b>Quote Evaluation</b> as Required, or open one from its drawer.</div>`;
+  return `<div style="overflow:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:12px"><table class="tbl" style="font-size:11.5px">
+    <thead><tr><th>Procurement ID</th><th>Scope</th><th>Campus</th><th>Responsible</th><th class="n">Bidders</th><th>Evaluation Status</th><th class="n">Lowest Quote</th><th>Selected Supplier</th><th></th></tr></thead>
+    <tbody>${rows.map(r=>{ const ev=qeFor(r.id), low=ev?qeLowest(ev):null;
+      return `<tr><td>${esc(procDisplayId(r))}${procIsChild(r)?' <span class="chip-cat" style="background:#2563eb18;color:#1d4ed8">Child</span>':""}</td>
+      <td>${esc(r.name||"")}</td><td>${esc(r.campus||"")}</td><td>${esc(r.assignedToName||r.responsible||"")}</td>
+      <td class="n">${ev?(ev.bidders||[]).length:0}</td><td>${esc(qeStatusOf(r)||qeReqLabel(r))}</td>
+      <td class="n">${low?qeUSD(low.amount):"—"}</td><td>${esc(ev&&ev.selection?ev.selection.supplier:"—")}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="openQuoteEval('${r.id}')">Open</button></td></tr>`; }).join("")}</tbody></table></div>`;
+}
+
 function collectFileIds(){
   const ids=new Set();
   const scan=v=>{
