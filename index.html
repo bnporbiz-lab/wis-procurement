@@ -2104,13 +2104,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.9.3";
+const APP_VERSION = "v8.9.4";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.9.4: Child → PO assignment inheritance fixed — the PO form now shows the Child's assignee (e.g. OUK THOEUN — Purchase Supervisor) instead of '— unassigned —'; the control stays locked for Entry, Admin/Super still defaults to the Child's assignee and may change it",
     "Server-side: an Entry-created PO must originate from an assigned procurement record — fromRecord is validated by the Firestore Rules (source must exist, be assigned to the caller, and never be a Parent). Manual/unlinked POs are Admin and Super Admin only",
     "Committed-amount sync is ATOMIC: the PO and the Child commit in one Firestore batch — if either write is denied, neither document changes, and local state updates only after the commit resolves"
   ]},
@@ -5127,6 +5128,12 @@ function createPOFromRecord(recId){
     amount: itemsTotal,
     remarks: r.remarks||"",
     files: r.files?JSON.parse(JSON.stringify(r.files)):[],
+    /* v8.9.4: the PO inherits the source record's assignment. Without these three
+       fields the form's locked assignee control rendered "— unassigned —" for the
+       very Entry user the Child is assigned to (production canary, Ouk Thoeun/C01). */
+    assignedToUid: r.assignedToUid||null,
+    assignedToId:  r.assignedToId||null,
+    assignedToName:r.assignedToName||null,
     _fromRecord: recId
   };
   openPOForm(null, draft);
@@ -5152,7 +5159,7 @@ function openPOForm(id,draft){
     <div class="field"><label class="req">Status</label><select id="po_status">${PO_STATUS.map(s=>`<option ${p?.status===s?'selected':''}>${s}</option>`).join("")}</select></div>
     <div class="field"><label>Order Date</label><input type="date" id="po_orderDate" value="${p?.orderDate||''}"></div>
     <div class="field"><label>Responsible / Assigned to <span class="muted" style="font-weight:400;font-size:11px">— inherits from the linked record</span></label>
-      <select id="po_responsible_sel" ${isEntrySession()?"disabled":""} onchange="this.dataset.touched='1'"><option value="">— unassigned (admins only can edit) —</option>${DB.users.map(u=>`<option value="${esc(u.id)}" ${(p&&p.assignedToId===u.id)?"selected":""}>${esc(u.name)}</option>`).join("")}</select></div>
+      <select id="po_responsible_sel" ${isEntrySession()?"disabled":""} onchange="this.dataset.touched='1'"><option value="">— unassigned (admins only can edit) —</option>${DB.users.map(u=>`<option value="${esc(u.id)}" ${(p&&p.assignedToId===u.id)?"selected":""}>${esc(u.name)}${u.title?(" — "+esc(u.title)):""}</option>`).join("")}${(p&&p.assignedToId&&!DB.users.some(u=>u.id===p.assignedToId))?`<option value="${esc(p.assignedToId)}" selected>${esc(p.assignedToName||p.assignedToId)}</option>`:""}</select></div>
     <div class="field"><label>Expected Delivery</label><input type="date" id="po_delivery" value="${p?.delivery||''}"></div>
     <div class="field"><label>Currency / Amount</label><input type="number" step="0.01" id="po_amount" value="${p?.amount||0}" readonly style="background:var(--surface-2)"></div>
     <div class="field full"><label>Line Items</label><div class="file-list" id="poItems" style="margin-bottom:8px"></div>
@@ -5244,7 +5251,15 @@ async function doSavePO(id){
     } else {
       obj.createdByUid=(SESSION&&SESSION.uid)||null; obj.createdById=(SESSION&&SESSION.id)||null; obj.createdByName=(SESSION&&SESSION.name)||null;
       if(isEntrySession()){
-        obj.assignedToUid=(SESSION&&SESSION.uid)||null; obj.assignedToId=(SESSION&&SESSION.id)||null; obj.assignedToName=(SESSION&&SESSION.name)||"";
+        /* v8.9.4: prefer the SOURCE record's stored assignment strings — for an
+           Entry these are always the caller (record-backed POs only), so the
+           payload still satisfies selfAssignedCreate() under revision 5d-fix2. */
+        const srcE=obj.fromRecord?DB.procurement.find(x=>x.id===obj.fromRecord):null;
+        if(srcE && srcE.assignedToUid===(SESSION&&SESSION.uid)){
+          obj.assignedToUid=srcE.assignedToUid; obj.assignedToId=srcE.assignedToId||(SESSION&&SESSION.id)||null; obj.assignedToName=srcE.assignedToName||(SESSION&&SESSION.name)||"";
+        } else {
+          obj.assignedToUid=(SESSION&&SESSION.uid)||null; obj.assignedToId=(SESSION&&SESSION.id)||null; obj.assignedToName=(SESSION&&SESSION.name)||"";
+        }
       } else {
         const src=obj.fromRecord?DB.procurement.find(x=>x.id===obj.fromRecord):null;
         if(src && src.assignedToUid){ obj.assignedToUid=src.assignedToUid; obj.assignedToId=src.assignedToId||null; obj.assignedToName=src.assignedToName||null; }
