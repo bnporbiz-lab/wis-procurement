@@ -2109,13 +2109,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.10.1";
+const APP_VERSION = "v8.10.2";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.10.2: Quote Evaluation modal displays the composed Child reference (e.g. TEST-PC-…-C02) in the title and Procurement ID via the existing childRef helper, and the human-readable category via procListName — raw internal list IDs never shown; evaluation linkage (quoteEval.id == the Child's Firestore document) unchanged",
     "v8.10.1: PO Requirement honored everywhere — the drawer shows PO Requirement (Required / Not Required / Unspecified legacy) above the PO Number; every Create Purchase Order surface (drawer footer, both list-row icons, edit-form action) hides for Not Required records and shows View Purchase Order when a PO is linked; createPOFromRecord() refuses Not Required records for every role before any PO number is allocated — a linked PO always remains authoritative",
     "v8.10.0: Quote Evaluation & Bidder Selection — optional, independent processes (all four Evaluation×PO combinations valid); per-record evaluation with unlimited bidders, item-by-item comparison with auto totals and lowest-quote highlight (never auto-awarded); Admin/Super confirm the winning supplier with required justification; Child handoff sets Quotation=original and Committed=award (Parent budget never touched); Standalone stores the award separately (Budget never overwritten) and prefers it for PO prefill; selection locks once a PO is linked; Evaluation tab is a live workspace; stored in the new quoteEvals collection (synced + in backups)",
     "v8.9.7: PO linkage integrity — the record drawer footer is now linkage-aware (View Purchase Order (no) when a PO exists via fromRecord or legacy rec.po, Create only when none); duplicate PO creation is HARD-BLOCKED for every role before a number is allocated (the existing PO opens instead); Child Outstanding now = max(0, Actual Amount − Paid), consistent with the Parent summary — no committed fallback, standalone formula unchanged",
@@ -10969,6 +10970,7 @@ function qeNew(r){
     history:[], created:Date.now(), updated:Date.now() };
 }
 function qeUSD(v){ return "$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function qeDisplayId(r){ return procIsChild(r)?childRef(r):procDisplayId(r); }
 function openQuoteEval(recId){
   const r=DB.procurement.find(x=>x.id===recId);
   if(!r){ toast("Record not found","","err"); return; }
@@ -11039,11 +11041,11 @@ function qeRender(){
       <div class="field" style="flex:1;min-width:240px"><label>Supplier Selection Justification (required)</label><input id="qe_sel_just" placeholder="Why this supplier was selected"></div>
       <button class="btn btn-primary" onclick="qeConfirmSelection()">Confirm Selected Supplier…</button></div>`
     : `<span class="muted" style="font-size:12px">${isEntrySession()?"Bidder selection is finalized by Admin / Super Admin.":(locked?"Selection is locked — a Purchase Order is already linked.":"No bidders yet.")}</span>`);
-  openModal(`<div class="modal-head"><h3>Quote Evaluation — ${esc(procDisplayId(r))}</h3><button class="act-btn" onclick="closeModal()">✕</button></div><div class="modal-body">
+  openModal(`<div class="modal-head"><h3>Quote Evaluation — ${esc(qeDisplayId(r))}</h3><button class="act-btn" onclick="closeModal()">✕</button></div><div class="modal-body">
     <datalist id="qeSupList">${(DB.suppliers||[]).map(s=>`<option value="${esc(s.name||s.id||"")}">`).join("")}</datalist>
     <div style="display:flex;flex-wrap:wrap;gap:14px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px">
-      ${info("Procurement ID",esc(procDisplayId(r)))}${info("PR Number",esc(r.pr||""))}${info("Campus / Project",esc(r.campus||""))}
-      ${info("Item / Scope",esc(r.name||""))}${info("Category",esc(r.category||r.listId||""))}${info("Responsible",esc(r.assignedToName||r.responsible||""))}
+      ${info("Procurement ID",esc(qeDisplayId(r)))}${info("PR Number",esc(r.pr||""))}${info("Campus / Project",esc(r.campus||""))}
+      ${info("Item / Scope",esc(r.name||""))}${info("Category",esc(r.category||procListName(r.listId)))}${info("Responsible",esc(r.assignedToName||r.responsible||""))}
       ${par?info("Parent",esc(procDisplayId(par))):""}
       ${info("Requirement",qeReqLabel(r))}
       <div class="field" style="min-width:170px"><label style="font-size:10.5px">Evaluation Status</label><select ${edit?"":"disabled"} onchange="_qe.status=this.value">${statusOpts}</select></div>
