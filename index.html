@@ -2104,13 +2104,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.9.4";
+const APP_VERSION = "v8.9.5";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.9.5: STRICT NAMED two-step PO approval routing — Submit for Approval belongs to the designated PO Preparer (Chan Bunny) alone: hidden and client-guarded for Entry AND for any other admin; Lav Sreynet approves/rejects when Pending Approval; Entry keeps viewing and editing permitted operational fields",
     "v8.9.4: Child → PO assignment inheritance fixed — the PO form now shows the Child's assignee (e.g. OUK THOEUN — Purchase Supervisor) instead of '— unassigned —'; the control stays locked for Entry, Admin/Super still defaults to the Child's assignee and may change it",
     "Server-side: an Entry-created PO must originate from an assigned procurement record — fromRecord is validated by the Firestore Rules (source must exist, be assigned to the caller, and never be a Parent). Manual/unlinked POs are Admin and Super Admin only",
     "Committed-amount sync is ATOMIC: the PO and the Child commit in one Firestore batch — if either write is denied, neither document changes, and local state updates only after the commit resolves"
@@ -6069,6 +6070,10 @@ function poIsMyApproval(p){ const a=poApproval(p); return !!(a && SESSION && a.a
 // Did I submit this PO?
 function poIsMySubmission(p){ const a=poApproval(p); return !!(a && SESSION && a.submittedById===SESSION.id); }
 // Can the current user act on (approve/reject) this PO? (assigned approver or super admin, but NOT the person who submitted it)
+/* v8.9.5: STRICT NAMED two-step workflow. Step 1 (prepare + submit) belongs to
+   ONE person — the designated PO Preparer — not to the admin tier at large. */
+const PO_PREPARER_ID="bunny";           // Chan Bunny — PO Preparer
+function isPOPreparer(){ return !!(SESSION && SESSION.id===PO_PREPARER_ID); }
 function poCanDecide(p){
   const a=poApproval(p); if(!a || a.state!=="pending" || !SESSION) return false;
   if(a.submittedById===SESSION.id) return false;              // separation of duties
@@ -6161,7 +6166,7 @@ function notifPanelHTML(){
 function poApprovalStripHTML(p){
   const a=poApproval(p);
   if(!a || a.state==="draft"){
-    return `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text-dim)">Not yet submitted for approval. Use <b>Submit for Approval</b> below to send it to an approver.</div>`;
+    return `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text-dim)">${isPOPreparer()?"Not yet submitted for approval. Use <b>Submit for Approval</b> below to send it to an approver.":"Not yet submitted for approval. The PO Preparer (Chan Bunny) reviews and submits it to the approver."}</div>`;
   }
   const stamp=t=>t?fmtStamp(t):"";
   if(a.state==="pending"){
@@ -6198,7 +6203,9 @@ function poApprovalActionsHTML(p,id){
   const st=a?a.state:"draft";
   let btns="";
   if(st==="draft"||st==="rejected"){
-    if(!isViewer()) btns+=`<button class="btn btn-primary" onclick="poSubmitForApproval('${id}')">${st==="rejected"?"Revise &amp; Resubmit":"Submit for Approval"}</button>`;
+    /* v8.9.5: submission belongs to the PO Preparer (admin/super) step of the
+       two-step workflow — Entry maintains the PO, never routes it. */
+    if(!isViewer() && !isEntrySession() && isPOPreparer()) btns+=`<button class="btn btn-primary" onclick="poSubmitForApproval('${id}')">${st==="rejected"?"Revise &amp; Resubmit":"Submit for Approval"}</button>`;
   } else if(st==="pending"){
     const stg=(a.stage||"approve");
     const waitTxt=stg==="verify"?("Awaiting verification by "+esc(a.verifierName||"verifier")):("Awaiting approval by "+esc(a.approverName||"approver"));
@@ -6219,6 +6226,8 @@ function poApprovalActionsHTML(p,id){
 
 // --- submit flow ---
 function poSubmitForApproval(id){
+  if(typeof isEntrySession==="function" && isEntrySession()){ toast("Not permitted","Submitting for approval is done by the PO Preparer (Chan Bunny). Your PO is saved and will be picked up for review.","err",8000); return; }
+  if(!isPOPreparer()){ toast("Not permitted","Only the designated PO Preparer (Chan Bunny) submits POs for approval.","err",8000); return; }
   const p=DB.po.find(x=>x.id===id); if(!p) return;
   const others=DB.users.filter(u=> !SESSION || u.id!==SESSION.id );
   if(!others.length){
@@ -6239,6 +6248,8 @@ function poSubmitForApproval(id){
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="poDoSubmit('${id}')">Submit for Approval</button></div>`);
 }
 function poDoSubmit(id){
+  if(typeof isEntrySession==="function" && isEntrySession()){ toast("Not permitted","Submitting for approval is done by the PO Preparer (Chan Bunny).","err",8000); return; }
+  if(!isPOPreparer()){ toast("Not permitted","Only the designated PO Preparer (Chan Bunny) submits POs for approval.","err",8000); return; }
   const p=DB.po.find(x=>x.id===id); if(!p) return;
   const sel=document.getElementById("po_appr_select"); const approverId=sel?sel.value:null;
   const approver=DB.users.find(u=>u.id===approverId); if(!approver){ toast("Pick an approver","","err"); return; }
