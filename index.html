@@ -2104,13 +2104,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.9.5";
+const APP_VERSION = "v8.9.6";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.9.6: PO Preparer gate unified and made identity-robust — the SAME isPOPreparer() check now gates the PO list submit action AND the detail-modal Submit/Revise buttons; the identity match is case-insensitive on the legacy ID with a display-name fallback, fixing the detail button missing for Chan Bunny (production legacy ID casing)",
     "v8.9.5: STRICT NAMED two-step PO approval routing — Submit for Approval belongs to the designated PO Preparer (Chan Bunny) alone: hidden and client-guarded for Entry AND for any other admin; Lav Sreynet approves/rejects when Pending Approval; Entry keeps viewing and editing permitted operational fields",
     "v8.9.4: Child → PO assignment inheritance fixed — the PO form now shows the Child's assignee (e.g. OUK THOEUN — Purchase Supervisor) instead of '— unassigned —'; the control stays locked for Entry, Admin/Super still defaults to the Child's assignee and may change it",
     "Server-side: an Entry-created PO must originate from an assigned procurement record — fromRecord is validated by the Firestore Rules (source must exist, be assigned to the caller, and never be a Parent). Manual/unlinked POs are Admin and Super Admin only",
@@ -5036,7 +5037,7 @@ function paintPO(){
       const att=(p.files&&p.files.length)?`<span class="att-pill" onclick="previewFile('po','${p.id}',0)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>${p.files.length} file(s)</span>`:'<span class="muted">—</span>';
       return `<tr><td><b>${esc(p.poNo)}</b></td><td>${esc(p.supplier)||'<span class="muted">—</span>'}</td><td>${p.campus?`<span class="campus-tag ${campusTagClass(p.campus)}">${esc(p.campus)}</span>`:'<span class="muted">—</span>'}</td><td>${esc(p.pr)||'<span class="muted">—</span>'}</td><td><span class="chip-cat">${(p.items||[]).length} line(s)</span></td><td><b>${money(p.amount)}</b></td><td><span class="status ${poStatusClass(p.status)}">${esc(p.status)}</span></td><td>${fmtDate(p.orderDate)}</td><td>${fmtDate(p.delivery)}</td><td>${att}</td>
       <td><div class="row-actions">
-        ${(function(){ const st=(typeof poApprState==="function")?poApprState(p):"draft"; return (st==="draft"||st==="rejected")?`<button class="act-btn" title="Submit" style="color:#2563eb" onclick="poSubmitForApproval('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>`:(st==="pending"?(function(){
+        ${(function(){ const st=(typeof poApprState==="function")?poApprState(p):"draft"; return (st==="draft"||st==="rejected")?((!isViewer()&&!isEntrySession()&&isPOPreparer())?`<button class="act-btn" title="Submit" style="color:#2563eb" onclick="poSubmitForApproval('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>`:""):(st==="pending"?(function(){
           const a=p.approval||{}; const stg=a.stage||"approve";
           if(poCanDecide(p)) return stg==="verify"
             ? (isViewerSession()?`<span class="muted" style="font-size:11px">Verify retired — admin routes this</span>`:`<button class="btn btn-sm" style="background:#0d9488;color:#fff;border:none" onclick="poVerifyRouted('${p.id}')">Verify ✓</button>`)
@@ -6072,8 +6073,16 @@ function poIsMySubmission(p){ const a=poApproval(p); return !!(a && SESSION && a
 // Can the current user act on (approve/reject) this PO? (assigned approver or super admin, but NOT the person who submitted it)
 /* v8.9.5: STRICT NAMED two-step workflow. Step 1 (prepare + submit) belongs to
    ONE person — the designated PO Preparer — not to the admin tier at large. */
-const PO_PREPARER_ID="bunny";           // Chan Bunny — PO Preparer
-function isPOPreparer(){ return !!(SESSION && SESSION.id===PO_PREPARER_ID); }
+const PO_PREPARER_ID="bunny";           // Chan Bunny — PO Preparer (legacy id, any casing)
+const PO_PREPARER_NAME="chan bunny";    // display-name fallback for the same person
+function isPOPreparer(){
+  if(!SESSION) return false;
+  const sid=String(SESSION.id||"").trim().toLowerCase();
+  const snm=String(SESSION.name||"").trim().toLowerCase();
+  /* Case-insensitive: production legacy ids are mixed-case (Theoun vs phanna),
+     and an exact-match here hid the Submit button from the PO Preparer herself. */
+  return sid===PO_PREPARER_ID || snm===PO_PREPARER_NAME;
+}
 function poCanDecide(p){
   const a=poApproval(p); if(!a || a.state!=="pending" || !SESSION) return false;
   if(a.submittedById===SESSION.id) return false;              // separation of duties
