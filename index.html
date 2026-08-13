@@ -2109,13 +2109,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.10.0";
+const APP_VERSION = "v8.10.1";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.10.1: PO Requirement honored everywhere — the drawer shows PO Requirement (Required / Not Required / Unspecified legacy) above the PO Number; every Create Purchase Order surface (drawer footer, both list-row icons, edit-form action) hides for Not Required records and shows View Purchase Order when a PO is linked; createPOFromRecord() refuses Not Required records for every role before any PO number is allocated — a linked PO always remains authoritative",
     "v8.10.0: Quote Evaluation & Bidder Selection — optional, independent processes (all four Evaluation×PO combinations valid); per-record evaluation with unlimited bidders, item-by-item comparison with auto totals and lowest-quote highlight (never auto-awarded); Admin/Super confirm the winning supplier with required justification; Child handoff sets Quotation=original and Committed=award (Parent budget never touched); Standalone stores the award separately (Budget never overwritten) and prefers it for PO prefill; selection locks once a PO is linked; Evaluation tab is a live workspace; stored in the new quoteEvals collection (synced + in backups)",
     "v8.9.7: PO linkage integrity — the record drawer footer is now linkage-aware (View Purchase Order (no) when a PO exists via fromRecord or legacy rec.po, Create only when none); duplicate PO creation is HARD-BLOCKED for every role before a number is allocated (the existing PO opens instead); Child Outstanding now = max(0, Actual Amount − Paid), consistent with the Parent summary — no committed fallback, standalone formula unchanged",
     "v8.9.6: PO Preparer gate unified and made identity-robust — the SAME isPOPreparer() check now gates the PO list submit action AND the detail-modal Submit/Revise buttons; the identity match is case-insensitive on the legacy ID with a display-name fallback, fixing the detail button missing for Chan Bunny (production legacy ID casing)",
@@ -3522,7 +3523,7 @@ function paintProcurement(){
        ${cols.map((c,i)=>`<td class="${i===0?'frz frz1':(i===1?'frz frz2':'')} ${numCols[c.k]?'num':''}">${cell(c,r)}</td>`).join("")}
        <td class="pcc-actcol" onclick="event.stopPropagation()"><div class="row-actions">
          ${canMutateRecord(r)?`<button class="act-btn" title="Edit" onclick="openRecordForm('procurement','${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>`:""}
-         ${isEntry()?"":`<button class="act-btn" title="Create Purchase Order" style="color:var(--primary)" onclick="createPOFromRecord('${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>`}
+         ${isEntry()?"":(function(){ const lp=recLinkedPO(r); if(lp) return `<button class="act-btn" title="View Purchase Order" onclick="viewPO('${lp.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6"/></svg></button>`; if(!poCreateAllowed(r)) return ""; return `<button class="act-btn" title="Create Purchase Order" style="color:var(--primary)" onclick="createPOFromRecord('${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>`; })()}
          ${(canMutateRecord(r)&&!isEntry())?`<button class="act-btn del" title="Delete" onclick="deleteRecord('procurement','${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}
        </div></td>
      </tr>`+((procIsParent(r)&&_procExpanded[r.id])?procChildRowsHtml(r,cols.length+1):"")).join("")}
@@ -3662,7 +3663,7 @@ function openProcDrawer(id){
      ${sec("PR &amp; Quotation", row("PR Number",esc(r.pr))+row("Quotation Number",esc(r.quote)))}
      ${sec("Supplier Evaluation", row("Supplier",esc(r.supplier))+row("Category",esc(r.category)))}
      ${sec("Approval", row("Current Stage",esc(r.status||procStage(r)))+row("Confirmed Date",fmtDateUS(r.confirm)))}
-     ${sec("Purchase Order", row("PO Number",esc(recPoNo(r))))}
+     ${sec("Purchase Order", row("PO Requirement",poReqLabel(r))+row("PO Number",esc(recPoNo(r))))}
      ${procIsParent(r)?sec("Quote Evaluation (Children)",(function(){ const kids=(DB.procurement||[]).filter(x=>procIsChild(x)&&x.parentDocId===r.id);
         const selN=kids.filter(k=>{const e=qeFor(k.id);return e&&e.selection;}).length;
         const evN=kids.filter(k=>{const e=qeFor(k.id);return e&&!e.selection;}).length;
@@ -3689,7 +3690,7 @@ function openProcDrawer(id){
    <div class="pcc-drawer-foot">
      ${(function(){ if(procIsParent(r)) return ""; const lp=recLinkedPO(r);
        if(lp) return `<button class="btn btn-ghost btn-sm" style="margin-right:auto" onclick="closeProcDrawer();viewPO('${lp.id}')">View Purchase Order (${esc(lp.poNo||"")})</button>`;
-       return (isViewer()||isEntry())?"":`<button class="btn btn-primary btn-sm" style="margin-right:auto" onclick="closeProcDrawer();createPOFromRecord('${r.id}')">Create Purchase Order</button>`; })()}
+       return (isViewer()||isEntry()||!poCreateAllowed(r))?"":`<button class="btn btn-primary btn-sm" style="margin-right:auto" onclick="closeProcDrawer();createPOFromRecord('${r.id}')">Create Purchase Order</button>`; })()}
      ${(!isViewer()&&!isEntry()&&procType(r)==="standalone")?`<button class="btn btn-ghost btn-sm" onclick="convertToParent('${r.id}')">Convert to Parent</button>`:""}
      ${_canDup?`<button class="btn btn-ghost btn-sm" onclick="procDuplicate('${r.id}')">Duplicate</button>`:""}
      ${_canMut?`<button class="btn btn-ghost btn-sm" onclick="procCloseRecord('${r.id}')">Close Record</button>`:""}
@@ -3944,7 +3945,7 @@ function paintTable(set){
       <td><div class="row-actions">
         <button class="act-btn" title="View" onclick="viewRecord('${set}','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         <button class="act-btn" title="Edit" onclick="openRecordForm('${set}','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
-        ${set==="procurement"?`<button class="act-btn" title="Create Purchase Order" style="color:var(--primary)" onclick="createPOFromRecord('${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>`:""}
+        ${set==="procurement"?(function(){ const lp=recLinkedPO(r); if(lp) return `<button class="act-btn" title="View Purchase Order" onclick="viewPO('${lp.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6"/></svg></button>`; if(!poCreateAllowed(r)) return ""; return `<button class="act-btn" title="Create Purchase Order" style="color:var(--primary)" onclick="createPOFromRecord('${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>`; })():""}
         <button class="act-btn" title="Download" onclick="downloadRecord('${set}','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
         <button class="act-btn del" title="Delete" onclick="deleteRecord('${set}','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
       </div></td>
@@ -4129,7 +4130,7 @@ function openRecordForm(set,id,defaultStatus){
       if(poEl){
         poEl.readOnly=true; poEl.placeholder="No PO issued"; poEl.title="Auto-filled when a Purchase Order is issued";
         const linked=DB.po.find(x=>x.fromRecord===id) || (rr.po?DB.po.find(x=>x.poNo===rr.po):null);
-        const canCreate=!isViewerSession() && (!isEntrySession() || (rr.assignedToUid && SESSION && rr.assignedToUid===SESSION.uid));
+        const canCreate=!isViewerSession() && poCreateAllowed(rr) && (!isEntrySession() || (rr.assignedToUid && SESSION && rr.assignedToUid===SESSION.uid));
         const wrapPo=poEl.closest(".field");
         if(wrapPo){
           const bar=document.createElement("div"); bar.style.marginTop="6px";
@@ -5140,7 +5141,8 @@ function createPOFromRecord(recId){
      Selected Supplier -> PO Supplier; for a Standalone without items, the final
      award amount becomes the prefill line. Child amounts already flow through
      committedAmount, which the selection handoff updated. */
-  const _qeSel=(function(){ const e=qeFor(r.id); return (e&&e.selection)?e.selection:null; })();
+  if(!poCreateAllowed(r)){ toast("Purchase Order is marked Not Required for this procurement","Change the PO Requirement to Required before creating a PO.","err",9000); return; }
+    const _qeSel=(function(){ const e=qeFor(r.id); return (e&&e.selection)?e.selection:null; })();
   if(procIsParent(r)){ toast("POs are raised from Children","A Parent carries the estimate; open a Child (supplier-level purchase) and create the PO there.","err",8000); return; }
   if(typeof isEntrySession==="function" && isEntrySession() && !entryCanEditRecord(r)){ toast("Not assigned to you","You can only raise a PO for a record assigned to you.","err",7000); return; }
   // Split quote field into number + description if it contains a comma/text
@@ -5567,6 +5569,10 @@ function qeReqLabel(r){ const v=r&&r.evalRequired; return v==="required"?"Requir
 function qeStatusOf(r){ const ev=qeFor(r.id); if(ev) return ev.status||"Not Started"; return r.evalRequired==="required"?"Not Started":""; }
 function qeCanPrepare(r){ if(typeof isEntrySession==="function"&&isEntrySession()) return !!(r&&SESSION&&r.assignedToUid===SESSION.uid); return !isViewer(); }
 function qeSelectionLocked(r){ return !!recLinkedPO(r); }
+/* v8.10.1: PO requirement labels + Create-PO gating. A record marked
+   not_required is intentionally complete without a PO; a LINKED PO always wins. */
+function poReqLabel(r){ const v=r&&r.poRequired; return v==="required"?"Required":(v==="not_required"?"Not Required":"Unspecified (legacy)"); }
+function poCreateAllowed(r){ return !(r&&r.poRequired==="not_required"); }
 function procChildrenOf(parentDocId){ return (DB.procurement||[]).filter(x=>procIsChild(x)&&x.parentDocId===parentDocId); }
 function childRef(r){ const p=DB.procurement.find(x=>x.id===r.parentDocId); const base=(p&&p.pr)||(p&&p.id)||r.parentDocId||"?"; return base+"-C"+String(r.childSeq||0).padStart(2,"0"); }
 function parentSummary(p){
