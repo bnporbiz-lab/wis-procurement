@@ -2109,13 +2109,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.2";
+const APP_VERSION = "v8.11.3";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.3: Award workflow entry point exposed — a pre-chain 'Award Approval — Not Yet Started' panel now shows Submit for Procurement Review to the assigned Entry preparer (Route A via the existing awSubmit) and Submit Recommendation for Approval to Bunny/Admin (Route B via awRecommend); viewers see no action; all validation, route construction, and state logic unchanged",
     "v8.11.2: bidder lifecycle hygiene — removing a bidder confirms and cleans its item-comparison entries (blocked while it is the recommended supplier); orphaned comparison columns from delete+re-add are detected, surfaced, and manually re-attachable to a chosen live bidder (or discarded) one at a time; saving is blocked while unresolved orphans exist; bidder IDs remain stable through save/reload",
     "v8.11.1: Award Workflow Configuration save fixed — identities resolve through the canonical resolveUserAssignment() over a force-refreshed profiles cache (the previous lookup addressed a container that never existed, failing all four positions); legacy-ID matching is now trimmed and case-insensitive everywhere the resolver is used; validation unchanged — four trusted UIDs or refusal",
     "v8.11.0 Phase 1: Bidder Award Plan & Multi-Step Approval — single-supplier Award Plan with dynamic Route A (Preparer → Bunny → Sreynet → Finance Director → Final Approver) / Route B (Bunny-prepared, 4 steps, never duplicated); strict current-step-only actions; explicit revision routing with owner-only editing and preserved history; recommendation never touches financials — only the separate idempotent Apply Approved Award does, after Final Approval (Approved — Awaiting Execution); Entry becomes view-only once submitted (guard refuses saves before any mutation); PO creation gated until Award Executed when evaluation is Required; Super Admin Award Workflow Configuration (workflowConfig/award); legacy pre-workflow selections labeled and preserved; split awards labeled Coming Later",
@@ -11154,7 +11155,21 @@ async function saveAwardWorkflowConfig(){
 function awPanelHTML(ev,r){
   const ap=awApprovalOf(ev), sel=ev.selection;
   if(sel&&!ap) return `<div class="chip-cat" style="background:#6b728018;color:#374151;margin-bottom:6px">Legacy Selection — Pre-Approval Workflow</div>`;
-  if(!ap) return "";
+  if(!ap){
+    /* v8.11.3: PRE-CHAIN panel — the workflow entry point was previously rendered
+       only inside a panel that required the chain to already exist. The existing
+       awSubmit()/awRecommend() do all validation (plan, config, route build). */
+    const canEdit=qeCanEdit();
+    let act="";
+    if(canEdit&&typeof isEntrySession==="function"&&isEntrySession()&&r&&SESSION&&r.assignedToUid===SESSION.uid){
+      act=`<button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="awSubmit()">Submit for Procurement Review</button>`;
+    } else if(!isViewer()&&!(typeof isEntrySession==="function"&&isEntrySession())){
+      act=`<button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="awRecommend()">Submit Recommendation for Approval</button>`;
+    }
+    return `<div style="border:1px dashed var(--border);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+      <b style="font-size:12.5px">Award Approval — Not Yet Started</b>
+      <div class="muted" style="font-size:11.5px;margin-top:3px">Complete the Award Plan below, then submit it into the approval workflow.</div>${act}</div>`;
+  }
   const rows=ap.steps.map(s=>{ const st=s.action?(s.action==="approved"||s.action==="submitted"||s.action==="recommended"?"Completed":"Rejected"):(s.seq===ap.currentSeq&&!["revision_required","executed"].includes(ap.state)?"Pending":"Waiting");
     return `<tr><td>${s.seq}</td><td>${esc(s.name)}</td><td>${esc(s.roleLabel)}</td><td>${st}${s.at?` <span class="muted" style="font-size:10.5px">${new Date(s.at).toLocaleDateString()}</span>`:""}${s.comment?`<div class="muted" style="font-size:10.5px">${esc(s.comment)}</div>`:""}</td></tr>`; }).join("");
   const rev=ap.state==="revision_required"&&ap.revision?`<div style="border:1px solid #dc262655;background:#dc26260a;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:12px"><b>Revision Required</b> — returned to ${esc(ap.revision.revisionOwnerName||ap.revision.revisionOwnerLegacyId||"")} by ${esc(ap.revision.rejectedByName||"")}: <i>${esc(ap.revision.rejectionReason||"")}</i></div>`:"";
@@ -11185,15 +11200,15 @@ function awEnsureApproval(){
   return _qe.awardApproval;
 }
 async function awSubmit(){ // Route A step 1 (preparer)
+  if(!awRequirePlan()) return;                       // v8.11.3: refusal must leave NO chain behind
   const ap=awEnsureApproval(); if(!ap) return;
-  if(!awRequirePlan()) return;
   const s=awCurrentStep(ap); if(!awIsMineNow(ap)) { toast("Not your step","","err"); return; }
   s.action="submitted"; s.at=Date.now(); ap.state="submitted"; ap.currentSeq=s.seq+1; ap.revision=null;
   await awPersist(_qe); toast("Submitted for procurement review","","ok");
 }
 async function awRecommend(){ // Bunny
-  const ap=awEnsureApproval(); if(!ap) return;
   if(!awRequirePlan()) return;
+  const ap=awEnsureApproval(); if(!ap) return;
   if(!awIsMineNow(ap)){ toast("Not your step","","err"); return; }
   const s=awCurrentStep(ap); s.action="recommended"; s.at=Date.now(); ap.state="recommended"; ap.currentSeq=s.seq+1; ap.revision=null;
   await awPersist(_qe); toast("Recommendation submitted for approval","","ok");
