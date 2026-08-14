@@ -2107,13 +2107,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.8";
+const APP_VERSION = "v8.11.9";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.9: Bidder Award Approval PDF — a professional multi-page A4 report (landscape automatically for wide comparisons) generated purely from the saved evaluation and procurement documents with zero Firestore writes: WIS header, procurement information, full bidder comparison with the lowest quotation marked for reference (never implying automatic selection), item-by-item comparison, award decision using canonical executed financials for standalone records, the complete stored approval workflow, and execution metadata from awardApproval.execution; available from Final Approval (Approved — Awaiting Execution) and after Award Executed via the evaluation modal, Approval Center, and the Procurement drawer; sanitized filename Bidder-Award-<id>.pdf",
     "v8.11.8: Standalone Award Financial Mapping — Apply Approved Award on a standalone/legacy record now writes the canonical financial handoff (quotationAmount = approved original quotation, committedAmount = approved final award, selectedAwardAmount kept for compatibility, supplier and PO Requirement as before), so the drawer, committed-value reporting, and PO source pricing read real values instead of $0.00; Budget and actual/payment fields remain untouched; Child mapping, atomic WriteBatch execution, and the awardApproval.execution metadata schema unchanged",
     "v8.11.7: Cloud Readiness Fail-Closed Hardening — a configured Firebase deployment that is temporarily not connected can no longer produce false-success approvals: awPushDecision and awApply now distinguish genuinely-unconfigured local-only mode (fbConfigured() false — local transitions preserved) from configured-but-not-ready (explicit 'Firebase is not connected — nothing was changed' refusal, approver stays Pending, zero local mutation, retry available); read-only awDiagnostics() reports version / configured / ready / active / authenticated UID for production troubleshooting",
     "v8.11.6: Approval Commit Integrity — every Award workflow transition (Submit, Recommend, Approve, Reject, Apply Approved Award) now performs an AWAITED, role-independent targeted Firestore write BEFORE any local state, modal, Approval Center, or bell changes; a failed/denied write leaves the approver Pending with byte-identical local state and an explicit error (fixes the Viewer approval that never reached the server); Approval Center Review / bell Review Now use the dedicated ap-review navigation class so current-step Viewer approvers can open their assigned approval (no other create/edit controls exposed); the Quote Evaluation is frozen mid-chain for ALL roles including Admin/Super — bidders, items, comparison, attachments, Award Plan, PO Requirement, justification, and Save are locked from submission through execution, with editing restored only to the formal revisionOwnerUid during Revision Required",
@@ -3647,6 +3648,7 @@ function openProcDrawer(id){
         const evN=kids.filter(k=>{const e=qeFor(k.id);return e&&!e.selection;}).length;
         return `<p style="font-size:12.5px;margin:0">${kids.length} Children · ${selN} Supplier Selected · ${evN} Under Evaluation</p>`; })())
       :sec("Quote Evaluation",(function(){ const ev=qeFor(r.id);
+         if(ev&&awPdfAvailable(ev)){ /* completed evaluation linked to this record */ }
         if(!ev && r.evalRequired==="not_required") return `<p style="font-size:12.5px;margin:0"><b>Quote Evaluation: Not Required</b></p>`;
         if(!ev && r.evalRequired!=="required") return `<p class="muted" style="font-size:12px;margin:0 0 6px">Legacy / Unspecified — no evaluation on file.</p>`+(qeCanPrepare(r)?`<button class="btn btn-ghost btn-sm" onclick="closeProcDrawer();openQuoteEval('${r.id}')">Open Quote Evaluation</button>`:"");
         const low=ev?qeLowest(ev):null;
@@ -3656,7 +3658,7 @@ function openProcDrawer(id){
          +row("Lowest Quote",low?("$"+(Number(low.amount)||0).toLocaleString("en-US",{minimumFractionDigits:2})):"—")
          +row("Selected Supplier",ev&&ev.selection?esc(ev.selection.supplier):"—")
          +row("Selected / Award Amount",ev&&ev.selection?("$"+(Number(ev.selection.amountFinal)||0).toLocaleString("en-US",{minimumFractionDigits:2})):"—")
-         +`<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" onclick="closeProcDrawer();openQuoteEval('${r.id}')">Open Quote Evaluation</button></div>`; })())}
+         +`<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" onclick="closeProcDrawer();openQuoteEval('${r.id}')">Open Quote Evaluation</button>${(ev&&awPdfAvailable(ev))?` <button class="btn btn-ghost btn-sm ap-review" onclick="awDownloadAwardPDF('${r.id}')">Download Award PDF</button>`:""}</div>`; })())}
      ${sec("Payment", row("Deposit",r.deposit?usd(r.deposit):"")+row("Deposit Invoice #",esc(r.depositInv))+row("Final Payment",r.finalPay?usd(r.finalPay):"")+row("Final Invoice #",esc(r.finalInv))+row("Total Paid",usd(paid))+row("Outstanding",usd(procIsChild(r)?Math.max(0,(Number(r.actualAmount)||0)-paid):Math.max(0,(Number(r.budget)||0)-paid))))}
      ${sec("Delivery &amp; Receiving", row("Stage",esc(r.status||procStage(r)))+row("Confirmed / Received",fmtDateUS(r.confirm)))}
      ${procUnitOf(r)?sec("Unit Service History", procUnitHistoryHTML(procUnitOf(r), r.id, "closeProcDrawer();")):''}
@@ -5990,7 +5992,7 @@ function renderApprovals(){
   const revRows=rev.map(x=>{ const r=x.rec||{}, v=x.ap.revision||{};
     return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td><span class="status s-cancelled">Revision Required — assigned to ${esc(v.revisionOwnerName||v.revisionOwnerLegacyId||"")}</span></td><td>${esc(v.rejectedByName||"")}</td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><i>${esc(v.rejectionReason||"")}</i></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm ap-review" onclick="apReview('award','${esc(x.id)}')">Revise</button></td></tr>`; }).join("");
   const exRows=exec.map(x=>{ const r=x.rec||{}, p=x.ev.awardPlan||{};
-    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${p.amountFinal!=null?usd(p.amountFinal):"—"}</td><td><span class="status s-approved">Approved — Awaiting Execution</span></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm ap-review" onclick="apReview('award','${esc(x.id)}')">Open</button></td></tr>`; }).join("");
+    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${p.amountFinal!=null?usd(p.amountFinal):"—"}</td><td><span class="status s-approved">Approved — Awaiting Execution</span></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm ap-review" onclick="apReview('award','${esc(x.id)}')">Open</button> <button class="btn btn-ghost btn-sm ap-review" onclick="awDownloadAwardPDF('${esc(x.id)}')">Award PDF</button></td></tr>`; }).join("");
   document.getElementById("content").innerHTML=`
    <div class="pcc">
     <div class="pcc-head"><div><h2 class="pcc-title">Approval Center</h2>
@@ -8748,6 +8750,102 @@ async function saveAwardWorkflowConfig(){
   saveDB(); toast("Award workflow configuration saved","","ok"); closeModal();
 }
 /* ---- Award workflow actions (Phase 1: single-supplier) ---- */
+
+/* ===== v8.11.9 BIDDER AWARD APPROVAL PDF (reporting only — zero writes) ===== */
+function awPdfAvailable(ev){ const ap=ev&&ev.awardApproval; return !!(ap&&["approved_final","executed"].includes(ap.state)); }
+function awPdfFilename(r,ev){ const id=(r?qeDisplayId(r):(ev&&ev.id)||"award").replace(/[^A-Za-z0-9_-]+/g,"-").replace(/^-+|-+$/g,""); return "Bidder-Award-"+id+".pdf"; }
+function awBuildPdfModel(ev,r){
+  const ap=ev.awardApproval||{}, p=ev.awardPlan||{};
+  const lowRes=qeLowest(ev); const low=lowRes&&lowRes.bidder;
+  const isExec=ap.state==="executed";
+  const amt=b=>qeBidderAmount(ev,b);
+  const usd=v=>(v==null||v==="")?"—":("$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}));
+  const bidders=(ev.bidders||[]).map(b=>({supplier:b.supplier||"—",quoteNo:b.quoteNo||b.quotationNo||"—",quoteDate:b.quoteDate||"—",currency:b.currency||"USD",
+    original:usd(b.amountOriginal),discount:b.discount||b.negotiation||"—",final:usd(b.amountFinal!=null&&b.amountFinal!==""?b.amountFinal:b.amountOriginal),
+    delivery:b.delivery||b.leadTime||"—",payment:b.payment||b.paymentTerms||"—",warranty:b.warranty||"—",validity:b.validity||"—",
+    technical:b.technical||"—",qualified:b.qualified||"—",
+    isLowest:!!(low&&low.bid===b.bid),isAwarded:p.bidderId===b.bid}));
+  const items=(ev.items||[]).map(it=>({desc:it.desc||"",qty:it.qty!=null?it.qty:"",cells:(ev.bidders||[]).map(b=>{ const q=(it.quotes||{})[b.bid]||{};
+    const up=Number(q.unitPrice), tot=isFinite(up)&&it.qty!=null?up*Number(it.qty||0):null;
+    return {technical:q.technical||"—",unit:q.unitPrice!=null&&q.unitPrice!==""?usd(q.unitPrice):"—",total:tot!=null?usd(tot):"—"}; })}));
+  // executed standalone: canonical financials come from the PROCUREMENT record
+  const useRec=isExec&&r&&!procIsChild(r);
+  const award={recommended:p.supplier||"—",approved:isExec?((r&&r.supplier)||p.supplier||"—"):(p.supplier||"—"),
+    original:usd(useRec&&r.quotationAmount!=null?r.quotationAmount:p.amountOriginal),
+    finalAward:usd(useRec&&r.committedAmount!=null?r.committedAmount:(useRec&&r.selectedAwardAmount!=null?r.selectedAwardAmount:p.amountFinal)),
+    poRequired:poReqLabel(isExec&&r&&r.poRequired?r:{poRequired:p.poRequired}),
+    reasons:(p.reasons||[]).join(", ")||"—", justification:p.justification||"—"};
+  const steps=(ap.steps||[]).map(s=>({seq:s.seq,name:s.name||"—",fn:s.roleLabel||"—",
+    status:s.action?({submitted:"Submitted",recommended:"Recommended",approved:"Approved",rejected:"Rejected"}[s.action]||s.action):(s.seq===ap.currentSeq&&!isExec?"Pending":"Waiting"),
+    at:s.at?new Date(s.at).toLocaleString():"—"}));
+  const exec=isExec&&ap.execution?{state:ap.execution.state||"executed",by:ap.execution.executedByName||"—",at:ap.execution.executedAt?new Date(ap.execution.executedAt).toLocaleString():"—"}:null;
+  return { statusLabel:isExec?"Award Executed":"Approved — Awaiting Execution",
+    filename:awPdfFilename(r,ev),
+    proc:{ id:r?qeDisplayId(r):ev.id, campus:(r&&r.campus)||"—", scope:(r&&r.name)||"—", category:(r&&(r.category||procListName(r.listId)))||"—",
+      budget:r&&r.budget!=null?usd(r.budget):"—", preparedBy:(ap.steps&&ap.steps[0]&&ap.steps[0].name)||"—",
+      created:r&&r.created?new Date(r.created).toLocaleDateString():"—" },
+    bidders, items, biddersList:(ev.bidders||[]), award, steps, exec,
+    lowestNote:low?(low.supplier||"")+" — "+usd(lowRes.amount):"—",
+    generated:new Date().toLocaleString() };
+}
+function awDownloadAwardPDF(recId){
+  const r=DB.procurement.find(x=>x.id===recId)||null;
+  const ev=qeFor(recId); 
+  if(!ev||!awPdfAvailable(ev)){ toast("Award PDF not available","The official report exists only after Final Approval.","err",8000); return; }
+  if(!(window.jspdf&&window.jspdf.jsPDF)){ toast("PDF library not loaded","","err"); return; }
+  const m=awBuildPdfModel(ev,r);
+  const wide=(m.bidders.length>3);
+  const { jsPDF }=window.jspdf;
+  const doc=new jsPDF({unit:"pt",format:"a4",orientation:wide?"landscape":"portrait"});
+  const W=doc.internal.pageSize.getWidth(), L=40, R=W-40;
+  const BLUE=[91,155,213];
+  try{ doc.addImage(WIS_LOGO,"PNG",L,26,46,46); }catch(e){}
+  doc.setFontSize(15); doc.setTextColor(31,56,100); doc.setFont(undefined,"bold"); doc.text("WESTERN INTERNATIONAL SCHOOL",L+54,44);
+  doc.setFontSize(8.5); doc.setTextColor(90); doc.setFont(undefined,"normal"); doc.text("Procurement Management System",L+55,57);
+  doc.setFillColor(...BLUE); doc.rect(L,80,R-L,22,"F");
+  doc.setFontSize(12); doc.setTextColor(255); doc.setFont(undefined,"bold");
+  doc.text("BIDDER EVALUATION & AWARD APPROVAL REPORT",W/2,95,{align:"center"});
+  doc.setFontSize(9); doc.setTextColor(60); doc.setFont(undefined,"normal");
+  doc.text("Status: "+m.statusLabel+"    ·    Generated: "+m.generated,W/2,114,{align:"center"});
+  const sect=(title,y)=>{ doc.setFontSize(10.5); doc.setTextColor(31,56,100); doc.setFont(undefined,"bold"); doc.text(title,L,y); doc.setFont(undefined,"normal"); return y+6; };
+  let y=sect("1. Procurement Information",134);
+  doc.autoTable({startY:y,margin:{left:L,right:40},styles:{fontSize:8.5,cellPadding:3},theme:"grid",
+    head:[["Procurement / PR ID","Campus / Project","Item / Scope","Category","Budget","Prepared By","Created"]],
+    body:[[m.proc.id,m.proc.campus,m.proc.scope,m.proc.category,m.proc.budget,m.proc.preparedBy,m.proc.created]],
+    headStyles:{fillColor:BLUE}});
+  y=sect("2. Bidder Comparison   (Lowest quotation: "+m.lowestNote+" — shown for reference; selection is never automatic)",doc.lastAutoTable.finalY+18);
+  doc.autoTable({startY:y,margin:{left:L,right:40},styles:{fontSize:7.6,cellPadding:2.5},theme:"grid",headStyles:{fillColor:BLUE},
+    head:[["Supplier","Quote #","Date","Curr.","Original","Discount / Negotiation","Final","Delivery","Payment","Warranty","Validity","Technical","Qualified",""]],
+    body:m.bidders.map(b=>[b.supplier,b.quoteNo,b.quoteDate,b.currency,b.original,b.discount,b.final,b.delivery,b.payment,b.warranty,b.validity,b.technical,b.qualified,
+      (b.isLowest?"LOWEST":"")+(b.isLowest&&b.isAwarded?" · ":"")+(b.isAwarded?"AWARDED":"")])});
+  if(m.items.length){
+    y=sect("3. Item-by-Item Comparison",doc.lastAutoTable.finalY+18);
+    const head=["Description / Specification","Qty"]; m.biddersList.forEach(b=>{ head.push((b.supplier||"Bidder")+" Tech"); head.push("Unit"); head.push("Total"); });
+    doc.autoTable({startY:y,margin:{left:L,right:40},styles:{fontSize:7.4,cellPadding:2.4},theme:"grid",headStyles:{fillColor:BLUE},
+      head:[head], body:m.items.map(it=>{ const row=[it.desc,String(it.qty)]; it.cells.forEach(c=>{ row.push(c.technical); row.push(c.unit); row.push(c.total); }); return row; })});
+  }
+  y=sect((m.items.length?"4":"3")+". Award Decision",doc.lastAutoTable.finalY+18);
+  doc.autoTable({startY:y,margin:{left:L,right:40},styles:{fontSize:8.5,cellPadding:3},theme:"grid",headStyles:{fillColor:BLUE},
+    head:[["Recommended Supplier","Approved Supplier","Original Quotation","Final Award Amount","PO Requirement"]],
+    body:[[m.award.recommended,m.award.approved,m.award.original,m.award.finalAward,m.award.poRequired]]});
+  doc.autoTable({startY:doc.lastAutoTable.finalY+6,margin:{left:L,right:40},styles:{fontSize:8.5,cellPadding:3},theme:"grid",headStyles:{fillColor:BLUE},
+    head:[["Selection Reasons","Award Justification / Recommendation"]], body:[[m.award.reasons,m.award.justification]]});
+  y=sect((m.items.length?"5":"4")+". Approval Workflow",doc.lastAutoTable.finalY+18);
+  doc.autoTable({startY:y,margin:{left:L,right:40},styles:{fontSize:8.5,cellPadding:3},theme:"grid",headStyles:{fillColor:BLUE},
+    head:[["Step","Person","Function","Status","Decision Date / Time"]],
+    body:m.steps.map(s=>[String(s.seq),s.name,s.fn,s.status,s.at])});
+  if(m.exec){
+    y=sect((m.items.length?"6":"5")+". Execution Information",doc.lastAutoTable.finalY+18);
+    doc.autoTable({startY:y,margin:{left:L,right:40},styles:{fontSize:8.5,cellPadding:3},theme:"grid",headStyles:{fillColor:BLUE},
+      head:[["Execution State","Executed By","Execution Date / Time"]], body:[[m.exec.state,m.exec.by,m.exec.at]]});
+  }
+  const pages=doc.getNumberOfPages();
+  for(let i=1;i<=pages;i++){ doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120);
+    doc.text("Bidder Award Approval Report — "+m.proc.id,L,doc.internal.pageSize.getHeight()-18);
+    doc.text("Page "+i+" of "+pages,R,doc.internal.pageSize.getHeight()-18,{align:"right"}); }
+  doc.save(m.filename);
+}
+
 function awPanelHTML(ev,r){
   const ap=awApprovalOf(ev), sel=ev.selection;
   if(sel&&!ap) return `<div class="chip-cat" style="background:#6b728018;color:#374151;margin-bottom:6px">Legacy Selection — Pre-Approval Workflow</div>`;
@@ -8770,7 +8868,8 @@ function awPanelHTML(ev,r){
     return `<tr><td>${s.seq}</td><td>${esc(s.name)}</td><td>${esc(s.roleLabel)}</td><td>${st}${s.at?` <span class="muted" style="font-size:10.5px">${new Date(s.at).toLocaleDateString()}</span>`:""}${s.comment?`<div class="muted" style="font-size:10.5px">${esc(s.comment)}</div>`:""}</td></tr>`; }).join("");
   const rev=ap.state==="revision_required"&&ap.revision?`<div style="border:1px solid #dc262655;background:#dc26260a;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:12px"><b>Revision Required</b> — returned to ${esc(ap.revision.revisionOwnerName||ap.revision.revisionOwnerLegacyId||"")} by ${esc(ap.revision.rejectedByName||"")}: <i>${esc(ap.revision.rejectionReason||"")}</i></div>`:"";
   return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:10px">
-    <b style="font-size:12.5px">Award Approval — ${esc(awStateLabel(ap.state))} <span class="muted" style="font-weight:400">(Route ${esc(ap.route||"")})</span></b>${rev}
+    <b style="font-size:12.5px">Award Approval — ${esc(awStateLabel(ap.state))} <span class="muted" style="font-weight:400">(Route ${esc(ap.route||"")})</span></b>
+    ${awPdfAvailable(ev)?`<button class="btn btn-ghost btn-sm ap-review" style="float:right;margin-top:-4px" onclick="awDownloadAwardPDF('${esc(r?r.id:ev.id)}')">Download Award PDF</button>`:""}${rev}
     <div style="overflow:auto"><table class="tbl" style="font-size:11.5px;margin-top:6px"><thead><tr><th>Step</th><th>Person</th><th>Function</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${awActionsHTML(ev,r)}</div>`;
 }
