@@ -2107,13 +2107,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.7";
+const APP_VERSION = "v8.11.8";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.8: Standalone Award Financial Mapping — Apply Approved Award on a standalone/legacy record now writes the canonical financial handoff (quotationAmount = approved original quotation, committedAmount = approved final award, selectedAwardAmount kept for compatibility, supplier and PO Requirement as before), so the drawer, committed-value reporting, and PO source pricing read real values instead of $0.00; Budget and actual/payment fields remain untouched; Child mapping, atomic WriteBatch execution, and the awardApproval.execution metadata schema unchanged",
     "v8.11.7: Cloud Readiness Fail-Closed Hardening — a configured Firebase deployment that is temporarily not connected can no longer produce false-success approvals: awPushDecision and awApply now distinguish genuinely-unconfigured local-only mode (fbConfigured() false — local transitions preserved) from configured-but-not-ready (explicit 'Firebase is not connected — nothing was changed' refusal, approver stays Pending, zero local mutation, retry available); read-only awDiagnostics() reports version / configured / ready / active / authenticated UID for production troubleshooting",
     "v8.11.6: Approval Commit Integrity — every Award workflow transition (Submit, Recommend, Approve, Reject, Apply Approved Award) now performs an AWAITED, role-independent targeted Firestore write BEFORE any local state, modal, Approval Center, or bell changes; a failed/denied write leaves the approver Pending with byte-identical local state and an explicit error (fixes the Viewer approval that never reached the server); Approval Center Review / bell Review Now use the dedicated ap-review navigation class so current-step Viewer approvers can open their assigned approval (no other create/edit controls exposed); the Quote Evaluation is frozen mid-chain for ALL roles including Admin/Super — bidders, items, comparison, attachments, Award Plan, PO Requirement, justification, and Save are locked from submission through execution, with editing restored only to the formal revisionOwnerUid during Revision Required",
     "v8.11.5: AC Maintenance Module Cleanup — the entire obsolete AC Maintenance branch (AC Dashboard, Single Split AC, VRF System, Monthly Schedule, PM/CM/EM, AC Reports, Spare Parts & Replacement) and the old AC Task Tracker UI are permanently removed (~220 KB of code); the 8 legacy AC collections no longer load, listen, or sync — their Firestore documents remain untouched as archived data; stale ac:/sp: routes fall back safely to the Maintenance Dashboard; ICT / Security / All Records / Quarterly Reports and every Procurement record (including AC-related categories) are fully preserved; old backups containing AC keys still restore without error",
@@ -8897,7 +8898,12 @@ async function awApply(){ // Apply Approved Award — ONE atomic WriteBatch acro
   evN.updated=Date.now();
   const rN=JSON.parse(JSON.stringify(r));
   if(procIsChild(rN)){ rN.quotationAmount=orig; rN.committedAmount=award; }
-  else { rN.selectedAwardAmount=award; }
+  else {
+    /* v8.11.8: standalone/legacy records receive the SAME canonical financial
+       handoff the application actually reads (drawer, reports, PO source pricing);
+       selectedAwardAmount is kept for backward compatibility. Budget untouched. */
+    rN.quotationAmount=orig; rN.committedAmount=award; rN.selectedAwardAmount=award;
+  }
   if(p.supplier) rN.supplier=p.supplier;
   if(p.poRequired) rN.poRequired=p.poRequired;
   rN.history=rN.history||[];
