@@ -2107,13 +2107,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.10";
+const APP_VERSION = "v8.11.11";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.11: WIS Quote Evaluation PDF Final Layout Refinement — the logo and title block render as one centered group (logo beside the title, no longer isolated at the margin); all approval steps render in ONE horizontal row of compact same-height boxes (title · STATUS · name · date, no Name:/Function:/Date: labels) with widths weighted so long titles like Reviewed & Recommended by and long names stay on one line, and the complete row moves to the next page as an indivisible block when space is short; the digital-approval note is compact and sits directly below; AWARD EXECUTION is a single horizontal strip (AWARD EXECUTION · Executed by · date · EXECUTED) replacing the old three-row table, with an Approved — Awaiting Execution strip pre-execution; vertical spacing tightened throughout so a normal evaluation (2–3 bidders, modest items, five approvals) fits on ONE A4 landscape page without shrinking text below readability — larger reports still flow to additional pages cleanly",
     "v8.11.10: WIS Quote Evaluation PDF Redesign — the Bidder Award report is rebuilt on the WIS SUMMARY OF QUOTE EVALUATION form: A4 landscape, compact centered WIS header with dynamic procurement scope and a status stamp (APPROVED — AWAITING EXECUTION / AWARD EXECUTED); the main comparison table shows No./Description/Qty plus dynamic side-by-side supplier groups (Technical · Unit Price · Total Price under each supplier's name and quotation number) with a bold per-bidder TOTAL row — four or more suppliers continue in additional groups with the left columns repeated; a separate uncrowded Bidder Summary marks AWARDED and LOWEST as distinct concepts with the reference-only note; full-width SUPPLIER SELECTION justification plus a decision summary with Savings; approval blocks generated dynamically from awardApproval.steps[] with digital APPROVED indicators (no fake signatures, layout ready for stored signatures later); AWARD EXECUTION from awardApproval.execution; WIS date (14 Aug 2026) and USD currency formats; grey page footers; still reporting-only with zero Firestore writes",
     "v8.11.9: Bidder Award Approval PDF — a professional multi-page A4 report (landscape automatically for wide comparisons) generated purely from the saved evaluation and procurement documents with zero Firestore writes: WIS header, procurement information, full bidder comparison with the lowest quotation marked for reference (never implying automatic selection), item-by-item comparison, award decision using canonical executed financials for standalone records, the complete stored approval workflow, and execution metadata from awardApproval.execution; available from Final Approval (Approved — Awaiting Execution) and after Award Executed via the evaluation modal, Approval Center, and the Procurement drawer; sanitized filename Bidder-Award-<id>.pdf",
     "v8.11.8: Standalone Award Financial Mapping — Apply Approved Award on a standalone/legacy record now writes the canonical financial handoff (quotationAmount = approved original quotation, committedAmount = approved final award, selectedAwardAmount kept for compatibility, supplier and PO Requirement as before), so the drawer, committed-value reporting, and PO source pricing read real values instead of $0.00; Budget and actual/payment fields remain untouched; Child mapping, atomic WriteBatch execution, and the awardApproval.execution metadata schema unchanged",
@@ -8830,22 +8831,26 @@ function awDownloadAwardPDF(recId){
       doc.text("Western International School — Procurement Management System   ·   Bidder Award Report — "+m.proc.id,L,H-20);
       doc.text("Page "+i+" of "+pages+"   ·   Generated: "+m.generated,R,H-20,{align:"right"}); } };
   const ensure=(need)=>{ if(y+need>H-46){ doc.addPage(); y=44; } };
-  /* ---- HEADER (compact, centered, WIS form style) ---- */
-  try{ doc.addImage(WIS_LOGO,"PNG",L,26,44,44); }catch(e){}
-  doc.setFontSize(14); doc.setTextColor(...NAVY); doc.setFont(undefined,"bold");
-  doc.text("WESTERN INTERNATIONAL SCHOOL (WIS)",W/2,40,{align:"center"});
-  doc.setFontSize(12); doc.text("SUMMARY OF QUOTE EVALUATION",W/2,58,{align:"center"});
+  /* ---- HEADER: logo + title block treated as ONE centered group (v8.11.11) ---- */
+  doc.setFontSize(14); doc.setFont(undefined,"bold");
+  const _titleW=doc.getTextWidth?doc.getTextWidth("WESTERN INTERNATIONAL SCHOOL (WIS)"):260;
+  const _logoW=46,_gap=12,_groupW=_logoW+_gap+_titleW;
+  const _gx=Math.max(L,(W-_groupW)/2), _cx=_gx+_logoW+_gap+_titleW/2;
+  try{ doc.addImage(WIS_LOGO,"PNG",_gx,24,_logoW,_logoW); }catch(e){}
+  doc.setTextColor(...NAVY);
+  doc.text("WESTERN INTERNATIONAL SCHOOL (WIS)",_cx,38,{align:"center"});
+  doc.setFontSize(12); doc.text("SUMMARY OF QUOTE EVALUATION",_cx,54,{align:"center"});
   doc.setFontSize(9.5); doc.setTextColor(60); doc.setFont(undefined,"normal");
-  doc.text(m.scopeLine,W/2,73,{align:"center"});
+  doc.text(m.scopeLine,_cx,68,{align:"center"});
   doc.setFontSize(8.3); doc.setTextColor(90);
-  doc.text("PR ID: "+m.proc.id+"    ·    Date: "+awPdfDate(Date.now())+"    ·    Category: "+m.proc.category+"    ·    Budget: "+m.proc.budget,W/2,86,{align:"center"});
+  doc.text("PR ID: "+m.proc.id+"  ·  Date: "+awPdfDate(Date.now())+"  ·  Category: "+m.proc.category+"  ·  Budget: "+m.proc.budget,_cx,80,{align:"center"});
   // status stamp (badge)
   const badge=isExec?"AWARD EXECUTED":"APPROVED — AWAITING EXECUTION";
   const bw=doc.getTextWidth?Math.max(150,doc.getTextWidth(badge)+24):190;
   doc.setDrawColor.apply(doc,isExec?[5,150,105]:[124,58,237]); doc.setTextColor.apply(doc,isExec?[5,150,105]:[124,58,237]);
   if(doc.roundedRect) doc.roundedRect(R-bw,28,bw,20,4,4); else doc.rect(R-bw,28,bw,20);
   doc.setFontSize(8.6); doc.setFont(undefined,"bold"); doc.text(badge,R-bw/2,41,{align:"center"});
-  y=100;
+  y=92;
   /* ---- MAIN ITEM / QUOTATION COMPARISON (bidder groups, ≤3 per table) ---- */
   const chunks=awChunkBidders(m.biddersList,3);
   if((ev.items||[]).length){
@@ -8866,7 +8871,7 @@ function awDownloadAwardPDF(recId){
         headStyles:{fillColor:BLUE,halign:"center"},
         head:[head1,head2], body:body.concat([totRow]), rowPageBreak:"avoid",
         didDrawPage:()=>{}});
-      y=doc.lastAutoTable.finalY+14;
+      y=doc.lastAutoTable.finalY+10;
       if(ci<chunks.length-1){ doc.setFontSize(8); doc.setTextColor(...GREY);
         doc.text("Bidder comparison continues with additional suppliers below / on the next section.",L,y-6); }
     });
@@ -8879,17 +8884,17 @@ function awDownloadAwardPDF(recId){
     body:m.bidders.map(b=>[b.supplier,b.original,b.discount,b.final,b.delivery,b.payment,b.warranty,b.validity,b.technical,b.qualified,
       (b.isAwarded?"AWARDED":"")+(b.isAwarded&&b.isLowest?" · ":"")+(b.isLowest?"LOWEST":"")]),
     didParseCell:(d)=>{ if(d.section==="body"&&d.column.index===10&&/AWARDED/.test(String(d.cell.raw))) d.cell.styles.fontStyle="bold"; }});
-  y=doc.lastAutoTable.finalY+8;
-  doc.setFontSize(7.8); doc.setTextColor(...GREY);
+  y=doc.lastAutoTable.finalY+7;
+  doc.setFontSize(7.4); doc.setTextColor(...GREY);
   doc.text("Lowest quotation is shown for reference only and does not constitute automatic supplier selection.",L,y);
-  y+=16;
+  y+=12;
   /* ---- SUPPLIER SELECTION (full-width paragraph + decision summary) ---- */
   ensure(90);
-  doc.setFontSize(10); doc.setTextColor(...NAVY); doc.setFont(undefined,"bold"); doc.text("SUPPLIER SELECTION:",L,y); y+=13;
+  doc.setFontSize(10); doc.setTextColor(...NAVY); doc.setFont(undefined,"bold"); doc.text("SUPPLIER SELECTION:",L,y); y+=12;
   doc.setFontSize(9); doc.setTextColor(40); doc.setFont(undefined,"normal");
   const para=doc.splitTextToSize?doc.splitTextToSize(m.award.justification,R-L):[m.award.justification];
-  para.forEach(line=>{ ensure(14); doc.text(line,L,y); y+=12; });
-  y+=6; ensure(46);
+  para.forEach(line=>{ ensure(13); doc.text(line,L,y); y+=10.5; });
+  y+=4; ensure(42);
   const dec=[["Approved Supplier",m.award.approved],["Original Quotation",m.award.original],["Final Award Amount",m.award.finalAward]];
   if(m.savings) dec.push(["Savings",m.savings]);
   dec.push(["PO Requirement",m.award.poRequired]);
@@ -8897,38 +8902,53 @@ function awDownloadAwardPDF(recId){
   doc.autoTable({startY:y,margin:{left:L,right:W/2},styles:{fontSize:8.6,cellPadding:3},theme:"grid",
     body:dec, columnStyles:{0:{fontStyle:"bold",fillColor:[240,244,250],cellWidth:150},1:{fontStyle:"bold"}},
     didParseCell:(d)=>{ if(d.row.index===0&&d.column.index===1){ d.cell.styles.textColor=NAVY; } }});
-  y=doc.lastAutoTable.finalY+18;
-  /* ---- APPROVAL BLOCKS (dynamic from awardApproval.steps[]) ---- */
-  const steps=m.steps, perRow=Math.min(steps.length,steps.length>4?3:steps.length)||1;
-  const rows=[]; for(let i=0;i<steps.length;i+=perRow) rows.push(steps.slice(i,i+perRow));
-  rows.forEach(rowSteps=>{
-    const bwid=(R-L-(rowSteps.length-1)*12)/rowSteps.length, bh=74;
-    ensure(bh+14);
-    rowSteps.forEach((s,ix)=>{
-      const x=L+ix*(bwid+12);
+  y=doc.lastAutoTable.finalY+12;
+  /* ---- APPROVAL BLOCKS: ALL steps in ONE horizontal weighted row (v8.11.11) ---- */
+  (function(){
+    const steps=m.steps, gap=7, bh=54;
+    // width weights: whichever is wider — the function title or the person name — plus padding
+    doc.setFontSize(8.6);
+    const wOf=s=>{ const tw=doc.getTextWidth?Math.max(doc.getTextWidth(String(s.fn)+":"),doc.getTextWidth(String(s.name))):90; return tw+18; };
+    const raw=steps.map(wOf), sum=raw.reduce((a,b)=>a+b,0), avail=(R-L)-(steps.length-1)*gap;
+    const widths=raw.map(x=>x/sum*avail);
+    ensure(bh+22);                                   // the COMPLETE row + note move together, never split
+    steps.forEach((s,ix)=>{
+      const x=L+widths.slice(0,ix).reduce((a,b)=>a+b,0)+ix*gap, bwid=widths[ix];
       doc.setDrawColor(180); doc.rect(x,y,bwid,bh);
-      doc.setFontSize(8.4); doc.setTextColor(...NAVY); doc.setFont(undefined,"bold");
-      doc.text(String(s.fn)+":",x+8,y+14);
+      const title=String(s.fn)+":";
+      doc.setFont(undefined,"bold"); doc.setTextColor(...NAVY);
+      let fs=9; if(doc.getTextWidth){ doc.setFontSize(fs); while(fs>7.8&&doc.getTextWidth(title)>bwid-10){ fs-=0.25; doc.setFontSize(fs); } } else doc.setFontSize(8.4);
+      doc.text(title,x+5,y+12);
       const done=["Approved","Recommended","Submitted"].includes(s.status);
-      doc.setFontSize(9); doc.setTextColor.apply(doc,done?[5,150,105]:[150,150,150]);
-      doc.text(done?(s.status==="Approved"?"APPROVED":s.status.toUpperCase()):s.status.toUpperCase(),x+8,y+30);
-      doc.setFontSize(8.2); doc.setTextColor(50); doc.setFont(undefined,"normal");
-      doc.text("Name: "+s.name,x+8,y+45);
-      doc.text("Function: "+s.fn,x+8,y+56);
-      doc.text("Date: "+s.at,x+8,y+67);
+      doc.setFontSize(8.5); doc.setTextColor.apply(doc,done?[5,150,105]:[150,150,150]);
+      doc.text(String(s.status).toUpperCase(),x+5,y+25);
+      doc.setFont(undefined,"normal"); doc.setTextColor(50);
+      let nfs=8.7; if(doc.getTextWidth){ doc.setFontSize(nfs); while(nfs>7.4&&doc.getTextWidth(String(s.name))>bwid-10){ nfs-=0.25; doc.setFontSize(nfs); } } else doc.setFontSize(8.5);
+      doc.text(String(s.name),x+5,y+38);
+      doc.setFontSize(7.8); doc.setTextColor(110);
+      doc.text(String(s.at),x+5,y+49);
     });
-    y+=bh+12;
-  });
-  doc.setFontSize(7.6); doc.setTextColor(...GREY);
-  ensure(14); doc.text("Digitally approved through WIS Procurement Management System — no handwritten signature required.",L,y); y+=16;
-  /* ---- EXECUTION ---- */
+    y+=bh+9;
+    doc.setFontSize(7.2); doc.setTextColor(...GREY);
+    doc.text("Digitally approved through WIS Procurement Management System — no handwritten signature required.",L,y);
+    y+=9;
+  })();
+  /* ---- EXECUTION: one compact horizontal strip (v8.11.11) ---- */
+  ensure(32);
   if(m.exec){
-    ensure(50);
-    doc.setFontSize(10); doc.setTextColor(...NAVY); doc.setFont(undefined,"bold"); doc.text("AWARD EXECUTION",L,y); y+=6;
-    doc.autoTable({startY:y,margin:{left:L,right:W/2},styles:{fontSize:8.6,cellPadding:3},theme:"grid",
-      body:[["Executed By",m.exec.by],["Execution Date",m.exec.at],["Status",m.exec.state==="executed"?"Executed":m.exec.state]],
-      columnStyles:{0:{fontStyle:"bold",fillColor:[240,244,250],cellWidth:150}}});
-    y=doc.lastAutoTable.finalY+10;
+    doc.autoTable({startY:y,margin:{left:L,right:44},theme:"grid",
+      styles:{fontSize:8.6,cellPadding:{top:6,bottom:6,left:8,right:8},valign:"middle",fillColor:[246,248,251],lineColor:[200,205,214]},
+      body:[[{content:"AWARD EXECUTION",styles:{fontStyle:"bold",textColor:NAVY}},
+             "Executed by: "+m.exec.by,
+             m.exec.at,
+             {content:(m.exec.state==="executed"?"EXECUTED":String(m.exec.state).toUpperCase()),styles:{fontStyle:"bold",textColor:[5,150,105]}}]]});
+    y=doc.lastAutoTable.finalY+8;
+  } else {
+    doc.autoTable({startY:y,margin:{left:L,right:44},theme:"grid",
+      styles:{fontSize:8.6,cellPadding:{top:6,bottom:6,left:8,right:8},valign:"middle",fillColor:[246,248,251],lineColor:[200,205,214]},
+      body:[[{content:"AWARD STATUS",styles:{fontStyle:"bold",textColor:NAVY}},
+             {content:"Approved — Awaiting Execution",styles:{fontStyle:"bold",textColor:[124,58,237]}}]]});
+    y=doc.lastAutoTable.finalY+8;
   }
   footer();
   doc.save(m.filename);
