@@ -2109,13 +2109,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.1";
+const APP_VERSION = "v8.11.2";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.2: bidder lifecycle hygiene — removing a bidder confirms and cleans its item-comparison entries (blocked while it is the recommended supplier); orphaned comparison columns from delete+re-add are detected, surfaced, and manually re-attachable to a chosen live bidder (or discarded) one at a time; saving is blocked while unresolved orphans exist; bidder IDs remain stable through save/reload",
     "v8.11.1: Award Workflow Configuration save fixed — identities resolve through the canonical resolveUserAssignment() over a force-refreshed profiles cache (the previous lookup addressed a container that never existed, failing all four positions); legacy-ID matching is now trimmed and case-insensitive everywhere the resolver is used; validation unchanged — four trusted UIDs or refusal",
     "v8.11.0 Phase 1: Bidder Award Plan & Multi-Step Approval — single-supplier Award Plan with dynamic Route A (Preparer → Bunny → Sreynet → Finance Director → Final Approver) / Route B (Bunny-prepared, 4 steps, never duplicated); strict current-step-only actions; explicit revision routing with owner-only editing and preserved history; recommendation never touches financials — only the separate idempotent Apply Approved Award does, after Final Approval (Approved — Awaiting Execution); Entry becomes view-only once submitted (guard refuses saves before any mutation); PO creation gated until Award Executed when evaluation is Required; Super Admin Award Workflow Configuration (workflowConfig/award); legacy pre-workflow selections labeled and preserved; split awards labeled Coming Later",
     "v8.10.2: Quote Evaluation modal displays the composed Child reference (e.g. TEST-PC-…-C02) in the title and Procurement ID via the existing childRef helper, and the human-readable category via procListName — raw internal list IDs never shown; evaluation linkage (quoteEval.id == the Child's Firestore document) unchanged",
@@ -11044,7 +11045,7 @@ function qeRender(){
         ${isLow?'<span class="chip-cat" style="background:#05966918;color:#047857;font-weight:700">Lowest Quotation</span>':""}
         ${b.qualified==="No"?'<span class="chip-cat" style="background:#dc262618;color:#b91c1c">Not Qualified</span>':""}
         <span class="muted" style="margin-left:auto;font-weight:700">${amt!=null?qeUSD(amt):"—"}</span>
-        ${edit?`<button class="act-btn" title="Remove bidder" onclick="_qe.bidders.splice(${i},1);qeRender()" style="color:#dc2626">✕</button>`:""}
+        ${edit?`<button class="act-btn" title="Remove bidder" onclick="qeRemoveBidder(${i})" style="color:#dc2626">✕</button>`:""}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         <div class="field" style="min-width:180px"><label style="font-size:10.5px">Supplier Name</label><input list="qeSupList" value="${esc(b.supplier||"")}" ${edit?"":"disabled"} onchange="_qe.bidders[${i}].supplier=this.value"></div>
@@ -11095,6 +11096,14 @@ function qeRender(){
     <h4 style="margin:8px 0 6px">Bidders (${bl.length})</h4>
     ${bidCards||'<p class="muted" style="font-size:12px">No bidders yet.</p>'}
     ${edit?`<button class="btn btn-ghost btn-sm" onclick="qeAddBidder()">+ Add Bidder</button>`:""}
+    ${(function(){ const orph=qeOrphanKeys(ev); if(!orph.length) return "";
+      const k=orph[0];
+      return `<div style="border:1px solid #d9770655;background:#d977060a;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:12px">
+        <b>Comparison data from a removed/re-created bidder was found.</b> (${orph.length} orphaned column${orph.length>1?"s":""}, handled one at a time)
+        ${edit?`<div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">Re-attach column <code>${esc(k)}</code> to:
+          <select id="qe_orph_target"><option value="">— choose live bidder —</option>${(ev.bidders||[]).map(b=>`<option value="${esc(b.bid)}">${esc(b.supplier||"Bidder")}</option>`).join("")}</select>
+          <button class="btn btn-ghost btn-sm" onclick="qeReattach('${esc(k)}')">Re-attach Comparison Data</button>
+          <button class="btn btn-ghost btn-sm" style="color:#dc2626" onclick="qeDiscardOrphan('${esc(k)}')">Discard this column</button></div>`:""}</div>`; })()}
     <h4 style="margin:14px 0 6px">Item-by-Item Comparison ${low?`<span class="muted" style="font-weight:400;font-size:11.5px">· lowest quotation: <b style="color:#047857">${esc(low.bidder.supplier||"")} ${qeUSD(low.amount)}</b> (never auto-awarded)</span>`:""}</h4>
     <div style="overflow:auto;border:1px solid var(--border);border-radius:10px"><table class="tbl" style="font-size:11.5px;min-width:100%">${cmpHead}${cmpRows}${cmpTotals}</table></div>
     ${edit?`<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="qeAddItem()">+ Add Item</button>`:""}
@@ -11246,6 +11255,36 @@ async function awApply(){ // Apply Approved Award — single supplier, idempoten
 
 /* Application safety limits (not a schema redesign): a full evaluation at these
    caps stays far below Firestore's 1 MiB document limit. */
+/* v8.11.2: bidder lifecycle hygiene — quotes are keyed by bid; removal must
+   clean its comparison entries, and orphaned keys (from delete+re-add) are
+   surfaced for explicit, manual re-attachment — never guessed, never silent. */
+function qeOrphanKeys(ev){ const live=new Set((ev.bidders||[]).map(b=>b.bid)); const s=new Set();
+  (ev.items||[]).forEach(it=>Object.keys(it.quotes||{}).forEach(k=>{ if(!live.has(k)) s.add(k); })); return Array.from(s); }
+function qeRemoveBidder(i){
+  if(!qeCanEdit()){ toast("View only","","err"); return; }
+  const b=_qe.bidders[i]; if(!b) return;
+  if(_qe.awardPlan&&_qe.awardPlan.bidderId===b.bid){
+    toast("This bidder is currently the recommended supplier","Change or clear the Award Plan recommendation before removing this bidder.","err",9000); return; }
+  confirmModal("Remove bidder","Removing this bidder will also remove this bidder's item-by-item comparison values. Continue?",()=>{
+    (_qe.items||[]).forEach(it=>{ if(it.quotes) delete it.quotes[b.bid]; });
+    _qe.bidders.splice(i,1); qeRender();
+  },"Remove Bidder",false,()=>{});
+}
+function qeReattach(orphanKey){
+  if(!qeCanEdit()){ toast("View only","","err"); return; }
+  const sel=document.getElementById("qe_orph_target"); const target=sel&&sel.value;
+  if(!target){ toast("Choose the live bidder to receive the data","","err"); return; }
+  (_qe.items||[]).forEach(it=>{ const q=it.quotes||{}; if(q[orphanKey]){
+    q[target]=q[target]&&(q[target].unitPrice||q[target].technical)?q[target]:q[orphanKey];
+    delete q[orphanKey]; } });
+  toast("Comparison data re-attached","Totals recalculated. Save Evaluation to persist.","ok",7000);
+  qeRender();
+}
+function qeDiscardOrphan(orphanKey){
+  if(!qeCanEdit()){ toast("View only","","err"); return; }
+  (_qe.items||[]).forEach(it=>{ if(it.quotes) delete it.quotes[orphanKey]; });
+  qeRender();
+}
 const QE_MAX_BIDDERS=15, QE_MAX_ITEMS=200, QE_MAX_LONG=1000, QE_MAX_TEXT=300;
 function qeAddBidder(){
   if((_qe.bidders||[]).length>=QE_MAX_BIDDERS){ toast("Bidder limit reached","A quote evaluation supports up to "+QE_MAX_BIDDERS+" bidders.","err",7000); return; }
@@ -11286,6 +11325,7 @@ async function qeSave(silent){
       toast("Award Plan is frozen","The plan was finally approved; it can no longer change.","err",8000); return; }
   }
   const ev=_qe;
+  { const orph=qeOrphanKeys(_qe); if(orph.length){ toast("Not saved","Unresolved comparison data from removed bidders exists ("+orph.length+" column"+(orph.length>1?"s":"")+"). Re-attach it to a live bidder or discard it first.","err",10000); return; } }
   const lim=qeValidateLimits(ev);
   if(lim){ toast("Not saved",lim+" Shorten the content — nothing is truncated automatically.","err",9000); return; }
   ev.updated=Date.now();
