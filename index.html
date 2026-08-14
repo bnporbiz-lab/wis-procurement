@@ -2109,13 +2109,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.0";
+const APP_VERSION = "v8.11.1";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.1: Award Workflow Configuration save fixed — identities resolve through the canonical resolveUserAssignment() over a force-refreshed profiles cache (the previous lookup addressed a container that never existed, failing all four positions); legacy-ID matching is now trimmed and case-insensitive everywhere the resolver is used; validation unchanged — four trusted UIDs or refusal",
     "v8.11.0 Phase 1: Bidder Award Plan & Multi-Step Approval — single-supplier Award Plan with dynamic Route A (Preparer → Bunny → Sreynet → Finance Director → Final Approver) / Route B (Bunny-prepared, 4 steps, never duplicated); strict current-step-only actions; explicit revision routing with owner-only editing and preserved history; recommendation never touches financials — only the separate idempotent Apply Approved Award does, after Final Approval (Approved — Awaiting Execution); Entry becomes view-only once submitted (guard refuses saves before any mutation); PO creation gated until Award Executed when evaluation is Required; Super Admin Award Workflow Configuration (workflowConfig/award); legacy pre-workflow selections labeled and preserved; split awards labeled Coming Later",
     "v8.10.2: Quote Evaluation modal displays the composed Child reference (e.g. TEST-PC-…-C02) in the title and Procurement ID via the existing childRef helper, and the human-readable category via procListName — raw internal list IDs never shown; evaluation linkage (quoteEval.id == the Child's Firestore document) unchanged",
     "v8.10.1: PO Requirement honored everywhere — the drawer shows PO Requirement (Required / Not Required / Unspecified legacy) above the PO Number; every Create Purchase Order surface (drawer footer, both list-row icons, edit-form action) hides for Not Required records and shows View Purchase Order when a PO is linked; createPOFromRecord() refuses Not Required records for every role before any PO number is allocated — a linked PO always remains authoritative",
@@ -5529,7 +5530,8 @@ async function fbLoadProfilesCache(force){
 }
 function resolveUserAssignment(legacyId){
   const u=DB.users.find(x=>x.id===legacyId);
-  const p=(_profCache||[]).find(x=>x.legacyId===legacyId && x.status==="active");
+  const _lk=String(legacyId||"").trim().toLowerCase();   // v8.11.1: casing/whitespace never breaks identity (Bunthoeun vs bunthoeun)
+  const p=(_profCache||[]).find(x=>String(x.legacyId||"").trim().toLowerCase()===_lk && x.status==="active");
   return { assignedToUid:(p&&p.uid)||null, assignedToId:legacyId||null, assignedToName:(u&&u.name)||(p&&p.name)||"" };
 }
 /* ===== v8.9 PARENT/CHILD STRUCTURE =====
@@ -11124,10 +11126,11 @@ function openAwardWorkflowConfig(){
     <div class="field"><label>Final Approver</label>${sel("aw_fa",c.finalApprover)}</div></div>
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveAwardWorkflowConfig()">Save Configuration</button></div>`);
 }
-function saveAwardWorkflowConfig(){
+async function saveAwardWorkflowConfig(){
+  await fbLoadProfilesCache(true);   // v8.11.1: newly linked profiles are always fresh at save time
   const pick=id=>{ const lid=document.getElementById(id).value; if(!lid) return null;
-    const u=DB.users.find(x=>x.id===lid); const prof=Object.entries((_fb&&_fb.profiles)||{}).find(([uid,p])=>p&&String(p.legacyId||"").toLowerCase()===String(lid).toLowerCase());
-    return {uid:prof?prof[0]:null,legacyId:lid,name:(u&&u.name)||lid}; };
+    const ra=resolveUserAssignment(lid);   // the canonical identity resolver (same as role management)
+    return {uid:ra.assignedToUid||null,legacyId:lid,name:ra.assignedToName||lid}; };
   const cfg={id:"award",reviewer:pick("aw_rev"),approver1:pick("aw_a1"),financeDirector:pick("aw_fd"),finalApprover:pick("aw_fa"),updated:Date.now(),updatedByUid:SESSION.uid};
   const four=[cfg.reviewer,cfg.approver1,cfg.financeDirector,cfg.finalApprover];
   if(four.some(x=>!x)){ toast("All four positions are required","Award submissions stay blocked until the configuration is complete.","err",9000); }
