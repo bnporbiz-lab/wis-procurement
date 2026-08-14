@@ -988,7 +988,7 @@ let DB = null;
 function defaultDB(){
   return {
     users:[{id:"super admin", password:"Admin@123", name:"Super Admin", role:"superadmin", created:Date.now()}],
-    procurement:[], quoteEvals:[], projects:[], maintenance:[], suppliers:[], budget:[], po:[], stock:[], uniform:[], gepUniform:[], construction:[], procurementLists:[], maintQuarters:[], maintPrices:{}, maintCampuses:[], acUnits:[], acRecords:[], acCorrective:[], poItemCatalog:{}, acSpareRequests:[], acSpareReceipts:[], acReplacementRecords:[], acSpareAuditLogs:[], acTasks:[], prIntake:[],
+    procurement:[], quoteEvals:[], workflowConfig:[], projects:[], maintenance:[], suppliers:[], budget:[], po:[], stock:[], uniform:[], gepUniform:[], construction:[], procurementLists:[], maintQuarters:[], maintPrices:{}, maintCampuses:[], acUnits:[], acRecords:[], acCorrective:[], poItemCatalog:{}, acSpareRequests:[], acSpareReceipts:[], acReplacementRecords:[], acSpareAuditLogs:[], acTasks:[], prIntake:[],
     settings:{currency:"USD", orgName:"WESTEC Procurement Dept."}
   };
 }
@@ -1174,7 +1174,7 @@ function dbForSync(){
    a record deleted on one device stays deleted (and can't come
    back from another device's old copy).
 ============================================================ */
-const MERGE_LISTS=["procurement","quoteEvals","projects","maintenance","suppliers","budget","po","stock","uniform","gepUniform","construction","procurementLists","maintQuarters","maintCampuses","acUnits","acRecords","acCorrective","acSpareRequests","acSpareReceipts","acReplacementRecords","acSpareAuditLogs","acTasks","prIntake","users"];
+const MERGE_LISTS=["procurement","quoteEvals","workflowConfig","projects","maintenance","suppliers","budget","po","stock","uniform","gepUniform","construction","procurementLists","maintQuarters","maintCampuses","acUnits","acRecords","acCorrective","acSpareRequests","acSpareReceipts","acReplacementRecords","acSpareAuditLogs","acTasks","prIntake","users"];
 function _recStamp(r){ return Number(r&&(r.updated||r.receivedAt||r.created))||0; }
 function dbFingerprint(db){
   return MERGE_LISTS.map(k=>{ const a=Array.isArray(db&&db[k])?db[k]:[]; let m=0; a.forEach(r=>{ const s=_recStamp(r); if(s>m)m=s; }); return a.length+":"+m; }).join("|")
@@ -2109,13 +2109,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.10.2";
+const APP_VERSION = "v8.11.0";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.0 Phase 1: Bidder Award Plan & Multi-Step Approval — single-supplier Award Plan with dynamic Route A (Preparer → Bunny → Sreynet → Finance Director → Final Approver) / Route B (Bunny-prepared, 4 steps, never duplicated); strict current-step-only actions; explicit revision routing with owner-only editing and preserved history; recommendation never touches financials — only the separate idempotent Apply Approved Award does, after Final Approval (Approved — Awaiting Execution); Entry becomes view-only once submitted (guard refuses saves before any mutation); PO creation gated until Award Executed when evaluation is Required; Super Admin Award Workflow Configuration (workflowConfig/award); legacy pre-workflow selections labeled and preserved; split awards labeled Coming Later",
     "v8.10.2: Quote Evaluation modal displays the composed Child reference (e.g. TEST-PC-…-C02) in the title and Procurement ID via the existing childRef helper, and the human-readable category via procListName — raw internal list IDs never shown; evaluation linkage (quoteEval.id == the Child's Firestore document) unchanged",
     "v8.10.1: PO Requirement honored everywhere — the drawer shows PO Requirement (Required / Not Required / Unspecified legacy) above the PO Number; every Create Purchase Order surface (drawer footer, both list-row icons, edit-form action) hides for Not Required records and shows View Purchase Order when a PO is linked; createPOFromRecord() refuses Not Required records for every role before any PO number is allocated — a linked PO always remains authoritative",
     "v8.10.0: Quote Evaluation & Bidder Selection — optional, independent processes (all four Evaluation×PO combinations valid); per-record evaluation with unlimited bidders, item-by-item comparison with auto totals and lowest-quote highlight (never auto-awarded); Admin/Super confirm the winning supplier with required justification; Child handoff sets Quotation=original and Committed=award (Parent budget never touched); Standalone stores the award separately (Budget never overwritten) and prefers it for PO prefill; selection locks once a PO is linked; Evaluation tab is a live workspace; stored in the new quoteEvals collection (synced + in backups)",
@@ -4673,7 +4674,7 @@ function renderUsers(){
         </div>
       </div>
     </div></div>
-    <div class="toolbar"><button class="btn btn-primary" onclick="openUserForm()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create User</button></div>
+    <div class="toolbar"><button class="btn btn-ghost" style="margin-right:8px" onclick="openAwardWorkflowConfig()">Award Workflow Configuration</button><button class="btn btn-primary" onclick="openUserForm()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create User</button></div>
     <div class="table-card"><div class="table-scroll"><table class="data" style="min-width:640px"><thead><tr><th>User ID</th><th>Name</th><th>Role</th><th>Created</th><th>Action</th></tr></thead><tbody>${
       DB.users.map(u=>`<tr><td><b>${esc(u.id)}</b></td><td>${esc(u.name)}${u.title?`<div class="muted" style="font-size:11px">${esc(u.title)}</div>`:""}${u.tgChatId?` <span title="Telegram alerts on" style="font-size:11px">📲</span>`:""}</td><td><span class="chip-cat">${esc(roleLabel(u.role))}</span>${(()=>{ const p=(_profCache||[]).find(x=>x.legacyId===u.id); if(!p) return `<div class="muted" style="font-size:10.5px">no sign-in account</div>`; return (p.role!==u.role)?`<div style="font-size:10.5px;color:#b45309;font-weight:700">⚠ sign-in role: ${esc(roleLabel(p.role))}</div>`:`<div class="muted" style="font-size:10.5px">✓ sign-in linked</div>`; })()}</td><td>${fmtDate(u.created)}</td>
       <td><div class="row-actions">
@@ -5142,6 +5143,9 @@ function createPOFromRecord(recId){
      Selected Supplier -> PO Supplier; for a Standalone without items, the final
      award amount becomes the prefill line. Child amounts already flow through
      committedAmount, which the selection handoff updated. */
+  { const _ev=qeFor(r.id); const _ap=_ev&&_ev.awardApproval;
+    if(r.evalRequired==="required"&&_ap&&!["executed"].includes(_ap.state)){
+      toast("Award Plan not yet executed","Quote Evaluation is Required: the PO becomes available after the Award Plan receives final approval AND is executed.","err",9000); return; } }
   if(!poCreateAllowed(r)){ toast("Purchase Order is marked Not Required for this procurement","Change the PO Requirement to Required before creating a PO.","err",9000); return; }
     const _qeSel=(function(){ const e=qeFor(r.id); return (e&&e.selection)?e.selection:null; })();
   if(procIsParent(r)){ toast("POs are raised from Children","A Parent carries the estimate; open a Child (supplier-level purchase) and create the PO there.","err",8000); return; }
@@ -5570,6 +5574,34 @@ function qeReqLabel(r){ const v=r&&r.evalRequired; return v==="required"?"Requir
 function qeStatusOf(r){ const ev=qeFor(r.id); if(ev) return ev.status||"Not Started"; return r.evalRequired==="required"?"Not Started":""; }
 function qeCanPrepare(r){ if(typeof isEntrySession==="function"&&isEntrySession()) return !!(r&&SESSION&&r.assignedToUid===SESSION.uid); return !isViewer(); }
 function qeSelectionLocked(r){ return !!recLinkedPO(r); }
+/* ===== v8.11.0 Phase 1: Bidder Award Plan & Multi-Step Approval (single supplier) ===== */
+function awConfig(){ return (DB.workflowConfig||[]).find(d=>d&&d.id==="award")||null; }
+function awConfigComplete(){ const c=awConfig(); return !!(c&&c.reviewer&&c.reviewer.uid&&c.approver1&&c.approver1.uid&&c.financeDirector&&c.financeDirector.uid&&c.finalApprover&&c.finalApprover.uid); }
+function awApprovalOf(ev){ return (ev&&ev.awardApproval)||null; }
+function awStateLabel(s){ return ({draft:"Draft",submitted:"Submitted for Procurement Review",recommended:"Recommended / Pending Approval",approved_1:"Approved by Approver / Pending Finance Director",approved_finance:"Approved by Finance Director / Pending Final Approval",approved_final:"Approved — Awaiting Execution",executed:"Award Executed",revision_required:"Revision Required"})[s]||s||"Draft"; }
+function awBuildRoute(preparer){
+  const c=awConfig(); if(!c) return null;
+  const isBunnyPrep=preparer.uid===c.reviewer.uid;
+  const steps=[];
+  if(isBunnyPrep){ steps.push({seq:1,roleLabel:"Prepared & Recommended by",uid:c.reviewer.uid,legacyId:c.reviewer.legacyId,name:c.reviewer.name,action:null,at:null,comment:""}); }
+  else { steps.push({seq:1,roleLabel:"Prepared by",uid:preparer.uid,legacyId:preparer.legacyId||preparer.id||null,name:preparer.name,action:null,at:null,comment:""});
+         steps.push({seq:2,roleLabel:"Reviewed & Recommended by",uid:c.reviewer.uid,legacyId:c.reviewer.legacyId,name:c.reviewer.name,action:null,at:null,comment:""}); }
+  const base=steps.length;
+  steps.push({seq:base+1,roleLabel:"Approval",uid:c.approver1.uid,legacyId:c.approver1.legacyId,name:c.approver1.name,action:null,at:null,comment:""});
+  steps.push({seq:base+2,roleLabel:"Finance Director Approval",uid:c.financeDirector.uid,legacyId:c.financeDirector.legacyId,name:c.financeDirector.name,action:null,at:null,comment:""});
+  steps.push({seq:base+3,roleLabel:"Final Approval",uid:c.finalApprover.uid,legacyId:c.finalApprover.legacyId,name:c.finalApprover.name,action:null,at:null,comment:""});
+  return {route:isBunnyPrep?"B":"A",steps};
+}
+function awCurrentStep(ap){ if(!ap||!ap.steps) return null; return ap.steps.find(s=>s.seq===ap.currentSeq)||null; }
+function awIsMineNow(ap){ const s=awCurrentStep(ap); return !!(s&&SESSION&&s.uid===SESSION.uid); }
+/* Entry (or revision owner) may edit only while preparation belongs to them */
+function awEntryEditable(ev){
+  const ap=awApprovalOf(ev);
+  if(!ap||ap.state==="draft"||!ap.state) return true;                       // never submitted
+  if(ap.state==="revision_required") return !!(ap.revision&&SESSION&&ap.revision.revisionOwnerUid===SESSION.uid);
+  return false;                                                              // in the chain or beyond
+}
+function awPlanFrozen(ev){ const ap=awApprovalOf(ev); return !!(ap&&["approved_final","executed"].includes(ap.state)); }
 /* v8.10.1: PO requirement labels + Create-PO gating. A record marked
    not_required is intentionally complete without a PO; a LINKED PO always wins. */
 function poReqLabel(r){ const v=r&&r.poRequired; return v==="required"?"Required":(v==="not_required"?"Not Required":"Unspecified (legacy)"); }
@@ -10979,7 +11011,15 @@ function openQuoteEval(recId){
   _qe=JSON.parse(JSON.stringify(qeFor(recId)||qeNew(r)));
   qeRender();
 }
-function qeCanEdit(){ const r=DB.procurement.find(x=>x.id===_qeRecId); return r?qeCanPrepare(r):false; }
+function qeCanEdit(){
+  const r=DB.procurement.find(x=>x.id===_qeRecId); if(!r||!qeCanPrepare(r)) return false;
+  const stored=qeFor(_qeRecId);
+  if(typeof isEntrySession==="function"&&isEntrySession()){
+    if(stored&&stored.status==="Supplier Selected") return false;            // legacy finalized (v8.10.3)
+    if(stored&&!awEntryEditable(stored)) return false;                       // submitted / in approval chain
+  } else if(stored&&awPlanFrozen(stored)) { /* admins keep viewing; plan edits blocked in save */ }
+  return true;
+}
 function qeRender(){
   const r=DB.procurement.find(x=>x.id===_qeRecId); if(!r) return;
   const ev=_qe, edit=qeCanEdit(), locked=qeSelectionLocked(r), lp=recLinkedPO(r);
@@ -11056,10 +11096,151 @@ function qeRender(){
     <h4 style="margin:14px 0 6px">Item-by-Item Comparison ${low?`<span class="muted" style="font-weight:400;font-size:11.5px">· lowest quotation: <b style="color:#047857">${esc(low.bidder.supplier||"")} ${qeUSD(low.amount)}</b> (never auto-awarded)</span>`:""}</h4>
     <div style="overflow:auto;border:1px solid var(--border);border-radius:10px"><table class="tbl" style="font-size:11.5px;min-width:100%">${cmpHead}${cmpRows}${cmpTotals}</table></div>
     ${edit?`<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="qeAddItem()">+ Add Item</button>`:""}
-    <h4 style="margin:14px 0 6px">Supplier Selection</h4>
-    ${selHTML}</div>
+    <h4 style="margin:14px 0 6px">Award Plan & Approval</h4>
+    ${awPanelHTML(ev,r)}
+    ${(function(){ const ap=awApprovalOf(ev);
+      if(ev.selection&&!ap) return selHTML;   // legacy v8.10 selection display, unchanged
+      const canPlan=!isViewer()&&!isEntrySession()||(isEntrySession()&&edit);
+      if(!canPlan||awPlanFrozen(ev)||["submitted","recommended","approved_1","approved_finance"].includes((ap||{}).state||"")) return "";
+      const p=ev.awardPlan||{};
+      return `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;border:1px dashed var(--border);border-radius:10px;padding:10px 12px">
+        <div class="field" style="min-width:200px"><label>Recommended Supplier</label><select onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}) && (function(v){const b=_qe.bidders.find(x=>x.bid===v)||{};_qe.awardPlan.bidderId=v;_qe.awardPlan.supplier=b.supplier||'';_qe.awardPlan.amountOriginal=b.amountOriginal;_qe.awardPlan.amountFinal=b.amountFinal||b.amountOriginal;})(this.value)"><option value="">—</option>${bl.map(b=>`<option value="${esc(b.bid)}" ${p.bidderId===b.bid?"selected":""}>${esc(b.supplier||"Bidder")} — ${qeBidderAmount(ev,b)!=null?qeUSD(qeBidderAmount(ev,b)):"n/a"}</option>`).join("")}</select></div>
+        <div class="field" style="min-width:140px"><label>PO Requirement</label><select onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}).poRequired=this.value"><option value="">—</option><option value="required" ${p.poRequired==="required"?"selected":""}>Required</option><option value="not_required" ${p.poRequired==="not_required"?"selected":""}>Not Required</option></select></div>
+        <div class="field" style="flex:1;min-width:240px"><label>Award Plan Justification (required)</label><input value="${esc(p.justification||"")}" onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}).justification=this.value"></div>
+        <span class="muted" style="font-size:10.5px;width:100%">Recommending does NOT change any procurement financials — only the executed approved award does. Split (multi-supplier) awards: Coming Later.</span></div>`; })()}</div>
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Close</button>${edit?`<button class="btn btn-primary" onclick="qeSave()">Save Evaluation</button>`:""}</div>`,{size:"wide"});
 }
+
+function openAwardWorkflowConfig(){
+  if(!isSuper||(typeof isSuper==="function"&&!isSuper())){ if(SESSION&&SESSION.role!=="superadmin"){ toast("Super Admin only","","err"); return; } }
+  const c=awConfig()||{};
+  const users=(DB.users||[]).filter(u=>u&&u.id);
+  const sel=(id,cur)=>`<select id="${id}"><option value="">—</option>${users.map(u=>`<option value="${esc(u.id)}" ${cur&&cur.legacyId===u.id?"selected":""}>${esc(u.name)}</option>`).join("")}</select>`;
+  openModal(`<div class="modal-head"><h3>Award Workflow Configuration</h3><button class="act-btn" onclick="closeModal()">✕</button></div><div class="modal-body">
+    <p class="muted" style="font-size:12px">Trusted identities for the Bidder Award approval chain. All four positions must be active accounts. Saved to workflowConfig/award (Super Admin only).</p>
+    <div class="field"><label>Procurement Reviewer / Recommender</label>${sel("aw_rev",c.reviewer)}</div>
+    <div class="field"><label>Approver 1</label>${sel("aw_a1",c.approver1)}</div>
+    <div class="field"><label>Finance Director</label>${sel("aw_fd",c.financeDirector)}</div>
+    <div class="field"><label>Final Approver</label>${sel("aw_fa",c.finalApprover)}</div></div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveAwardWorkflowConfig()">Save Configuration</button></div>`);
+}
+function saveAwardWorkflowConfig(){
+  const pick=id=>{ const lid=document.getElementById(id).value; if(!lid) return null;
+    const u=DB.users.find(x=>x.id===lid); const prof=Object.entries((_fb&&_fb.profiles)||{}).find(([uid,p])=>p&&String(p.legacyId||"").toLowerCase()===String(lid).toLowerCase());
+    return {uid:prof?prof[0]:null,legacyId:lid,name:(u&&u.name)||lid}; };
+  const cfg={id:"award",reviewer:pick("aw_rev"),approver1:pick("aw_a1"),financeDirector:pick("aw_fd"),finalApprover:pick("aw_fa"),updated:Date.now(),updatedByUid:SESSION.uid};
+  const four=[cfg.reviewer,cfg.approver1,cfg.financeDirector,cfg.finalApprover];
+  if(four.some(x=>!x)){ toast("All four positions are required","Award submissions stay blocked until the configuration is complete.","err",9000); }
+  const ids=four.filter(Boolean).map(x=>x.legacyId.toLowerCase());
+  if(new Set(ids).size!==ids.length){ toast("Duplicate identity","The workflow requires distinct people in each position.","err",8000); return; }
+  if(four.some(x=>x&&!x.uid)){ toast("Account not resolvable to a Firebase UID","Positions must map to real, active accounts. Missing accounts (e.g. Ly Bunthoeun, In Sophoan) must be created first.","err",11000); return; }
+  const i=DB.workflowConfig.findIndex(d=>d.id==="award");
+  if(i>=0) DB.workflowConfig[i]=cfg; else DB.workflowConfig.push(cfg);
+  saveDB(); toast("Award workflow configuration saved","","ok"); closeModal();
+}
+/* ---- Award workflow actions (Phase 1: single-supplier) ---- */
+function awPanelHTML(ev,r){
+  const ap=awApprovalOf(ev), sel=ev.selection;
+  if(sel&&!ap) return `<div class="chip-cat" style="background:#6b728018;color:#374151;margin-bottom:6px">Legacy Selection — Pre-Approval Workflow</div>`;
+  if(!ap) return "";
+  const rows=ap.steps.map(s=>{ const st=s.action?(s.action==="approved"||s.action==="submitted"||s.action==="recommended"?"Completed":"Rejected"):(s.seq===ap.currentSeq&&!["revision_required","executed"].includes(ap.state)?"Pending":"Waiting");
+    return `<tr><td>${s.seq}</td><td>${esc(s.name)}</td><td>${esc(s.roleLabel)}</td><td>${st}${s.at?` <span class="muted" style="font-size:10.5px">${new Date(s.at).toLocaleDateString()}</span>`:""}${s.comment?`<div class="muted" style="font-size:10.5px">${esc(s.comment)}</div>`:""}</td></tr>`; }).join("");
+  const rev=ap.state==="revision_required"&&ap.revision?`<div style="border:1px solid #dc262655;background:#dc26260a;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:12px"><b>Revision Required</b> — returned to ${esc(ap.revision.revisionOwnerName||ap.revision.revisionOwnerLegacyId||"")} by ${esc(ap.revision.rejectedByName||"")}: <i>${esc(ap.revision.rejectionReason||"")}</i></div>`:"";
+  return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+    <b style="font-size:12.5px">Award Approval — ${esc(awStateLabel(ap.state))} <span class="muted" style="font-weight:400">(Route ${esc(ap.route||"")})</span></b>${rev}
+    <div style="overflow:auto"><table class="tbl" style="font-size:11.5px;margin-top:6px"><thead><tr><th>Step</th><th>Person</th><th>Function</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${awActionsHTML(ev,r)}</div>`;
+}
+function awActionsHTML(ev,r){
+  const ap=awApprovalOf(ev); if(!ap) return "";
+  const mine=awIsMineNow(ap); const btn=(l,fn,cls)=>`<button class="btn ${cls||"btn-primary"} btn-sm" style="margin:6px 6px 0 0" onclick="${fn}">${l}</button>`;
+  if(ap.state==="executed") return `<div class="muted" style="font-size:11.5px;margin-top:6px">Award executed${ap.execution&&ap.execution.executedAt?" on "+new Date(ap.execution.executedAt).toLocaleDateString():""}.</div>`;
+  if(ap.state==="approved_final") return (!isEntrySession()&&!isViewer())?btn("Apply Approved Award","awApply()"):`<div class="muted" style="font-size:11.5px;margin-top:6px">Awaiting execution by Admin.</div>`;
+  if(!mine) return "";
+  const s=awCurrentStep(ap);
+  if(/Prepared by/.test(s.roleLabel)&&["draft","revision_required"].includes(ap.state)) return btn("Submit to Procurement Review","awSubmit()");
+  if(/Recommended/.test(s.roleLabel)) return btn("Submit Recommendation for Approval","awRecommend()")+btn("Return for Revision…","awReject()","btn-ghost");
+  return btn("Approve","awDecide(true)")+btn("Reject…","awDecide(false)","btn-ghost");
+}
+async function awPersist(ev){ const i=DB.quoteEvals.findIndex(e=>e.id===ev.id); if(i>=0) DB.quoteEvals[i]=JSON.parse(JSON.stringify(ev)); else DB.quoteEvals.push(JSON.parse(JSON.stringify(ev)));
+  saveDB(); if(isEntrySession()&&typeof fbEntryPushRecord==="function") fbEntryPushRecord("quoteEvals",ev.id); _qe=JSON.parse(JSON.stringify(ev)); qeRender(); }
+function awRequirePlan(){ const p=_qe.awardPlan; if(!p||!p.bidderId||!(p.justification||"").trim()){ toast("Award Plan incomplete","Pick the recommended supplier and enter the justification.","err",8000); return false; } return true; }
+function awEnsureApproval(){
+  if(_qe.awardApproval) return _qe.awardApproval;
+  if(!awConfigComplete()){ toast("Award Workflow Configuration is incomplete","Preparation can continue, but approval submission is blocked until Super Admin configures all four workflow identities (Settings → Award Workflow).","err",11000); return null; }
+  const route=awBuildRoute({uid:SESSION.uid,legacyId:SESSION.id,name:SESSION.name});
+  _qe.awardApproval={route:route.route,steps:route.steps,currentSeq:1,state:"draft",revision:null,revisions:[],execution:null};
+  return _qe.awardApproval;
+}
+async function awSubmit(){ // Route A step 1 (preparer)
+  const ap=awEnsureApproval(); if(!ap) return;
+  if(!awRequirePlan()) return;
+  const s=awCurrentStep(ap); if(!awIsMineNow(ap)) { toast("Not your step","","err"); return; }
+  s.action="submitted"; s.at=Date.now(); ap.state="submitted"; ap.currentSeq=s.seq+1; ap.revision=null;
+  await awPersist(_qe); toast("Submitted for procurement review","","ok");
+}
+async function awRecommend(){ // Bunny
+  const ap=awEnsureApproval(); if(!ap) return;
+  if(!awRequirePlan()) return;
+  if(!awIsMineNow(ap)){ toast("Not your step","","err"); return; }
+  const s=awCurrentStep(ap); s.action="recommended"; s.at=Date.now(); ap.state="recommended"; ap.currentSeq=s.seq+1; ap.revision=null;
+  await awPersist(_qe); toast("Recommendation submitted for approval","","ok");
+}
+async function awDecide(approve){ // Sreynet / Ly / In Sophoan
+  const ap=awApprovalOf(_qe); if(!ap||!awIsMineNow(ap)){ toast("Not your step","","err"); return; }
+  const s=awCurrentStep(ap);
+  if(!approve){ awReject(); return; }
+  s.action="approved"; s.at=Date.now();
+  const last=ap.steps[ap.steps.length-1].seq;
+  if(s.seq===last){ ap.state="approved_final"; }
+  else { ap.currentSeq=s.seq+1; ap.state=(s.roleLabel==="Approval")?"approved_1":"approved_finance"; }
+  await awPersist(_qe); toast(ap.state==="approved_final"?"Final approval recorded — Awaiting Execution":"Approved","","ok",7000);
+}
+function awReject(){
+  const ap=awApprovalOf(_qe); if(!ap||!awIsMineNow(ap)) return;
+  const s=awCurrentStep(ap);
+  confirmModal("Return for revision","Enter the rejection / revision reason:<br><input id='aw_rej' style='width:100%;margin-top:6px'>",()=>{
+    const reason=(document.getElementById("aw_rej").value||"").trim();
+    if(!reason){ toast("Reason required","","err"); return; }
+    // owner: reviewer rejects -> original preparer (Route A); any approver rejects -> reviewer (Bunny)
+    const c=awConfig(); const prep=ap.steps[0];
+    const toPrep=/Recommended/.test(s.roleLabel)&&ap.route==="A";
+    const owner=toPrep?{uid:prep.uid,legacyId:prep.legacyId,name:prep.name,seq:prep.seq}
+                      :{uid:c.reviewer.uid,legacyId:c.reviewer.legacyId,name:c.reviewer.name,seq:ap.steps.find(x=>/Recommended/.test(x.roleLabel)).seq};
+    s.action="rejected"; s.at=Date.now(); s.comment=reason;
+    ap.revisions=ap.revisions||[];
+    if(ap.revisions.length>=10){ toast("Revision limit reached","Contact the Super Admin / system administrator.","err",9000); return; }
+    ap.revisions.push({archivedPlan:JSON.parse(JSON.stringify(_qe.awardPlan||null)),archivedSteps:JSON.parse(JSON.stringify(ap.steps)),reason,at:Date.now(),byUid:SESSION.uid});
+    ap.steps.forEach(x=>{ if(x.seq>=owner.seq&&x.seq!==s.seq){ x.action=null; x.at=null; } });
+    ap.revision={revisionOwnerUid:owner.uid,revisionOwnerLegacyId:owner.legacyId,revisionOwnerName:owner.name,returnToSeq:owner.seq,rejectedByUid:SESSION.uid,rejectedByName:SESSION.name,rejectionReason:reason,at:Date.now()};
+    ap.state="revision_required"; ap.currentSeq=owner.seq;
+    awPersist(_qe); toast("Returned for revision","","ok");
+  },"Return for Revision",false,()=>{});
+}
+async function awApply(){ // Apply Approved Award — single supplier, idempotent, cloud-first
+  const r=DB.procurement.find(x=>x.id===_qeRecId); const ev=_qe; const ap=awApprovalOf(ev);
+  if(isEntrySession()||isViewer()){ toast("Not permitted","","err"); return; }
+  if(!ap||ap.state!=="approved_final"){ if(ap&&ap.state==="executed"){ toast("Already executed","Opening the executed result.","err",7000); qeRender(); } else toast("Not awaiting execution","","err"); return; }
+  const p=ev.awardPlan, b=(ev.bidders||[]).find(x=>x.bid===p.bidderId)||{};
+  const orig=Number(p.amountOriginal)||Number(b.amountOriginal)||0, award=Number(p.amountFinal)||Number(b.amountFinal)||orig;
+  // mutate copies; commit locally only after building everything (single saveDB)
+  const evN=JSON.parse(JSON.stringify(ev));
+  evN.awardApproval.state="executed";
+  evN.awardApproval.execution={state:"executed",executedAt:Date.now(),executedByUid:SESSION.uid,executedByName:SESSION.name,generatedRecordIds:[]};
+  evN.status="Supplier Selected";
+  evN.selection={bidderId:p.bidderId,supplier:p.supplier,amountOriginal:orig,amountFinal:award,date:Date.now(),byUid:SESSION.uid,byId:SESSION.id,byName:SESSION.name,reasons:p.reasons||[],justification:p.justification||"",viaApprovedAward:true};
+  r.history=r.history||[];
+  if(procIsChild(r)){ r.quotationAmount=orig; r.committedAmount=award; }
+  else { r.selectedAwardAmount=award; }
+  if(p.supplier) r.supplier=p.supplier;
+  if(p.poRequired) r.poRequired=p.poRequired;
+  r.history.push({by:SESSION.name,at:Date.now(),action:"Approved Award executed: "+p.supplier+" — quotation "+orig+", award "+award});
+  r.updated=Date.now();
+  const i=DB.quoteEvals.findIndex(e=>e.id===evN.id); if(i>=0) DB.quoteEvals[i]=evN; else DB.quoteEvals.push(evN);
+  saveDB(); _qe=JSON.parse(JSON.stringify(evN));
+  toast("Award executed",p.supplier+" — "+qeUSD(award),"ok",8000); qeRender();
+}
+
 /* Application safety limits (not a schema redesign): a full evaluation at these
    caps stays far below Firestore's 1 MiB document limit. */
 const QE_MAX_BIDDERS=15, QE_MAX_ITEMS=200, QE_MAX_LONG=1000, QE_MAX_TEXT=300;
@@ -11093,6 +11274,14 @@ async function qeAttach(i,k,inp){
 async function qeSave(silent){
   const r=DB.procurement.find(x=>x.id===_qeRecId); if(!r) return;
   if(!qeCanPrepare(r)){ toast("Not permitted","","err"); return; }
+  { const stored=qeFor(_qeRecId);   // v8.11.0: refuse BEFORE local mutation — no local/cloud divergence
+    if(typeof isEntrySession==="function"&&isEntrySession()&&stored){
+      if(stored.status==="Supplier Selected"){ toast("View only","This evaluation was finalized. No changes are possible.","err",8000); return; }
+      if(!awEntryEditable(stored)){ toast("View only","This evaluation is in the approval chain. It becomes editable only if formally returned to you.","err",9000); return; }
+    }
+    if(stored&&awPlanFrozen(stored)&&JSON.stringify(_qe.awardPlan||null)!==JSON.stringify(stored.awardPlan||null)){
+      toast("Award Plan is frozen","The plan was finally approved; it can no longer change.","err",8000); return; }
+  }
   const ev=_qe;
   const lim=qeValidateLimits(ev);
   if(lim){ toast("Not saved",lim+" Shorten the content — nothing is truncated automatically.","err",9000); return; }
