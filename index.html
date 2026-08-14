@@ -1235,6 +1235,12 @@ function fbCfg(){
 }
 function fbUsingBuiltin(){ try{ const o=JSON.parse(localStorage.getItem(FB_CFG_KEY)||"null"); return !(o && o.apiKey && o.projectId); }catch(e){ return true; } }
 function fbActive(){ return !!_fb.ready; }
+/* v8.11.7: CONFIGURED means a Firebase config (apiKey/projectId) is saved for this
+   deployment — regardless of whether the connection is currently live. READY/ACTIVE
+   means the live connection is up right now. Fail-closed policy: a configured
+   deployment must never treat "not ready" as successful persistence. */
+function fbConfigured(){ try{ const c=(typeof fbCfg==="function")?fbCfg():null; return !!(c&&(c.apiKey||c.projectId)); }catch(e){ return false; } }
+function awDiagnostics(){ return { version:(typeof APP_VERSION!=="undefined"?APP_VERSION:"?"), firebaseConfigured:fbConfigured(), firebaseReady:!!(_fb&&_fb.ready), firebaseActive:(typeof fbActive==="function")&&fbActive(), authenticatedUid:(typeof SESSION!=="undefined"&&SESSION&&SESSION.uid)||null }; }
 function fbStatusHTML(){
   const m={off:'<span class="muted">Not connected.</span>',
     connecting:'<span style="color:#d97706;font-weight:600">Connecting…</span>',
@@ -2101,13 +2107,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.6";
+const APP_VERSION = "v8.11.7";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.7: Cloud Readiness Fail-Closed Hardening — a configured Firebase deployment that is temporarily not connected can no longer produce false-success approvals: awPushDecision and awApply now distinguish genuinely-unconfigured local-only mode (fbConfigured() false — local transitions preserved) from configured-but-not-ready (explicit 'Firebase is not connected — nothing was changed' refusal, approver stays Pending, zero local mutation, retry available); read-only awDiagnostics() reports version / configured / ready / active / authenticated UID for production troubleshooting",
     "v8.11.6: Approval Commit Integrity — every Award workflow transition (Submit, Recommend, Approve, Reject, Apply Approved Award) now performs an AWAITED, role-independent targeted Firestore write BEFORE any local state, modal, Approval Center, or bell changes; a failed/denied write leaves the approver Pending with byte-identical local state and an explicit error (fixes the Viewer approval that never reached the server); Approval Center Review / bell Review Now use the dedicated ap-review navigation class so current-step Viewer approvers can open their assigned approval (no other create/edit controls exposed); the Quote Evaluation is frozen mid-chain for ALL roles including Admin/Super — bidders, items, comparison, attachments, Award Plan, PO Requirement, justification, and Save are locked from submission through execution, with editing restored only to the formal revisionOwnerUid during Revision Required",
     "v8.11.5: AC Maintenance Module Cleanup — the entire obsolete AC Maintenance branch (AC Dashboard, Single Split AC, VRF System, Monthly Schedule, PM/CM/EM, AC Reports, Spare Parts & Replacement) and the old AC Task Tracker UI are permanently removed (~220 KB of code); the 8 legacy AC collections no longer load, listen, or sync — their Firestore documents remain untouched as archived data; stale ac:/sp: routes fall back safely to the Maintenance Dashboard; ICT / Security / All Records / Quarterly Reports and every Procurement record (including AC-related categories) are fully preserved; old backups containing AC keys still restore without error",
     "v8.11.4: Approval Center & In-App Approval Notifications — a new sidebar Approval Center with a live badge; a unified, COMPUTED inbox (Bidder Award + Purchase Order) where membership means the signed-in UID is the stored current workflow step; waiting-time indicators (<24h green, 1–2 days orange, >2 days red, visibility only); Revision Required shown only to its revision owner; Approved — Awaiting Execution listed separately for Admin/Super; the Procurement Pending My Approval quick filter and the top-bar bell now derive from the same shared getMyPendingApprovals() helper (Review opens the existing evaluation/PO screens — approval never happens from the popup); dashboard cards link into the Center; no documents copied, no rules changed",
@@ -8782,7 +8789,8 @@ function awActionsHTML(ev,r){
    state, modal, Approval Center, or bell changes. Viewer sessions are excluded
    from the generic fbFlush() by design, so this path must never rely on it. */
 async function awPushDecision(ev){
-  if(!(typeof fbActive==="function" && fbActive() && _fb.app)) return true;   // pure-local mode
+  if(!fbConfigured()) return true;                                            // genuine local-only deployment
+  if(!(typeof fbActive==="function" && fbActive() && _fb.app)) return "offline"; // configured but NOT ready: fail closed
   try{
     ev.updated=Date.now();
     const docBody=(typeof fbStripFiles==="function")?fbStripFiles(JSON.parse(JSON.stringify(ev))):JSON.parse(JSON.stringify(ev));
@@ -8794,9 +8802,10 @@ async function awPushDecision(ev){
   }catch(e){ console.error("[award] decision write REJECTED/FAILED:", e&&e.code, e&&e.message); return false; }
 }
 async function awCommit(evNext, okTitle, okSub){
-  const ok=await awPushDecision(evNext);
-  if(!ok){
-    toast("Approval NOT saved","The server rejected or the write failed. The workflow was NOT advanced — your step remains pending. Please try again.","err",11000);
+  const res=await awPushDecision(evNext);
+  if(res!==true){
+    if(res==="offline") toast("Firebase is not connected","Nothing was changed. Please reconnect and try again — your step remains pending.","err",11000);
+    else toast("Approval NOT saved","The server rejected or the write failed. The workflow was NOT advanced — your step remains pending. Please try again.","err",11000);
     qeRender();                                        // repaint from the UNCHANGED authoritative state
     return false;
   }
@@ -8894,7 +8903,12 @@ async function awApply(){ // Apply Approved Award — ONE atomic WriteBatch acro
   rN.history=rN.history||[];
   rN.history.push({by:SESSION.name,at:Date.now(),action:"Approved Award executed: "+p.supplier+" — quotation "+orig+", award "+award});
   rN.updated=Date.now();
-  /* ONE atomic server commit: the evaluation can never be executed without the record handoff. */
+  /* ONE atomic server commit: the evaluation can never be executed without the record handoff.
+     v8.11.7 fail-closed: configured-but-not-ready must never skip the batch and continue locally. */
+  if(fbConfigured() && !(typeof fbActive==="function" && fbActive() && _fb.app)){
+    toast("Firebase is not connected","Nothing was changed — the Approved Award was NOT applied. Please reconnect and try again.","err",11000);
+    return;
+  }
   if(typeof fbActive==="function" && fbActive() && _fb.app){
     try{
       const fs=_fb.app.firestore(); const batch=fs.batch();
