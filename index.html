@@ -200,6 +200,10 @@ body.role-viewer #content .act-btn[title="PDF"],
 body.role-viewer #content .act-btn[title="Excel"],
 body.role-viewer #content .act-btn[title="Download"],
 body.role-viewer #content .act-btn[title="Submit"]{ display:none !important; }
+/* v8.11.6: approval-workflow NAVIGATION (not create/edit/delete). The stored
+   current-step UID gates membership; this button only opens the existing screen. */
+body.role-viewer #content .ap-review{display:inline-flex !important}
+body.role-entry #content .ap-review{display:inline-flex !important}
 /* Data Entry role: read-only everywhere except Procurement (its own records; per-record buttons handled in JS) */
 body.role-entry:not([data-page="procurement"]) #content .btn-primary,
 body.role-entry:not([data-page="procurement"]) #content .act-btn[title="Edit"],
@@ -2097,13 +2101,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.5";
+const APP_VERSION = "v8.11.6";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.6: Approval Commit Integrity — every Award workflow transition (Submit, Recommend, Approve, Reject, Apply Approved Award) now performs an AWAITED, role-independent targeted Firestore write BEFORE any local state, modal, Approval Center, or bell changes; a failed/denied write leaves the approver Pending with byte-identical local state and an explicit error (fixes the Viewer approval that never reached the server); Approval Center Review / bell Review Now use the dedicated ap-review navigation class so current-step Viewer approvers can open their assigned approval (no other create/edit controls exposed); the Quote Evaluation is frozen mid-chain for ALL roles including Admin/Super — bidders, items, comparison, attachments, Award Plan, PO Requirement, justification, and Save are locked from submission through execution, with editing restored only to the formal revisionOwnerUid during Revision Required",
     "v8.11.5: AC Maintenance Module Cleanup — the entire obsolete AC Maintenance branch (AC Dashboard, Single Split AC, VRF System, Monthly Schedule, PM/CM/EM, AC Reports, Spare Parts & Replacement) and the old AC Task Tracker UI are permanently removed (~220 KB of code); the 8 legacy AC collections no longer load, listen, or sync — their Firestore documents remain untouched as archived data; stale ac:/sp: routes fall back safely to the Maintenance Dashboard; ICT / Security / All Records / Quarterly Reports and every Procurement record (including AC-related categories) are fully preserved; old backups containing AC keys still restore without error",
     "v8.11.4: Approval Center & In-App Approval Notifications — a new sidebar Approval Center with a live badge; a unified, COMPUTED inbox (Bidder Award + Purchase Order) where membership means the signed-in UID is the stored current workflow step; waiting-time indicators (<24h green, 1–2 days orange, >2 days red, visibility only); Revision Required shown only to its revision owner; Approved — Awaiting Execution listed separately for Admin/Super; the Procurement Pending My Approval quick filter and the top-bar bell now derive from the same shared getMyPendingApprovals() helper (Review opens the existing evaluation/PO screens — approval never happens from the popup); dashboard cards link into the Center; no documents copied, no rules changed",
     "v8.11.3: Award workflow entry point exposed — a pre-chain 'Award Approval — Not Yet Started' panel now shows Submit for Procurement Review to the assigned Entry preparer (Route A via the existing awSubmit) and Submit Recommendation for Approval to Bunny/Admin (Route B via awRecommend); viewers see no action; all validation, route construction, and state logic unchanged",
@@ -5970,14 +5975,14 @@ function renderApprovals(){
   const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
   const wait=x=>`<span style="font-weight:700;color:${apWaitColor(x.since)}">${apWaitLabel(x.since)}</span>`;
   const rowA=x=>{ const r=x.rec||{}, p=x.ev.awardPlan||{}; const prep=(x.ap.steps&&x.ap.steps[0])||{};
-    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(r.name||"")}</td><td><span class="chip-cat" style="background:#4f46e518;color:#4338ca">Bidder Award</span></td><td>${esc(prep.name||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${p.amountFinal!=null?usd(p.amountFinal):"—"}</td><td>${esc(x.step.roleLabel)}</td><td>${fmtStamp(x.since)}</td><td>${wait(x)}</td><td><span class="status s-pendingapproval">Pending My Review</span></td><td><button class="btn btn-primary btn-sm" onclick="apReview('award','${esc(x.id)}')">Review</button></td></tr>`; };
+    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(r.name||"")}</td><td><span class="chip-cat" style="background:#4f46e518;color:#4338ca">Bidder Award</span></td><td>${esc(prep.name||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${p.amountFinal!=null?usd(p.amountFinal):"—"}</td><td>${esc(x.step.roleLabel)}</td><td>${fmtStamp(x.since)}</td><td>${wait(x)}</td><td><span class="status s-pendingapproval">Pending My Review</span></td><td><button class="btn btn-primary btn-sm ap-review" onclick="apReview('award','${esc(x.id)}')">Review</button></td></tr>`; };
   const rowP=x=>{ const p=x.po, a=p.approval||{};
-    return `<tr><td style="font-weight:700">${esc(p.poNo||p.id)}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(p.pr||p.quoteDesc||"")}</td><td><span class="chip-cat" style="background:#05966918;color:#047857">Purchase Order</span></td><td>${esc(a.submittedByName||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${usd(p.amount)}</td><td>PO Approval</td><td>${fmtStamp(x.since)}</td><td>${wait(x)}</td><td><span class="status s-pendingapproval">Pending My Approval</span></td><td><button class="btn btn-primary btn-sm" onclick="apReview('po','${esc(p.id)}')">Review</button></td></tr>`; };
+    return `<tr><td style="font-weight:700">${esc(p.poNo||p.id)}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(p.pr||p.quoteDesc||"")}</td><td><span class="chip-cat" style="background:#05966918;color:#047857">Purchase Order</span></td><td>${esc(a.submittedByName||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${usd(p.amount)}</td><td>PO Approval</td><td>${fmtStamp(x.since)}</td><td>${wait(x)}</td><td><span class="status s-pendingapproval">Pending My Approval</span></td><td><button class="btn btn-primary btn-sm ap-review" onclick="apReview('po','${esc(p.id)}')">Review</button></td></tr>`; };
   const table=rows=>`<div style="overflow:auto;border:1px solid var(--border);border-radius:11px;background:var(--surface)"><table class="tbl" style="font-size:12px;min-width:1100px"><thead><tr><th>Doc ID</th><th>Item / Scope</th><th>Approval Type</th><th>Submitted / Prepared By</th><th>Recommended Supplier</th><th class="num">Amount</th><th>Current Step</th><th>Waiting Since</th><th>Waiting Time</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const revRows=rev.map(x=>{ const r=x.rec||{}, v=x.ap.revision||{};
-    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td><span class="status s-cancelled">Revision Required — assigned to ${esc(v.revisionOwnerName||v.revisionOwnerLegacyId||"")}</span></td><td>${esc(v.rejectedByName||"")}</td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><i>${esc(v.rejectionReason||"")}</i></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm" onclick="apReview('award','${esc(x.id)}')">Revise</button></td></tr>`; }).join("");
+    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td><span class="status s-cancelled">Revision Required — assigned to ${esc(v.revisionOwnerName||v.revisionOwnerLegacyId||"")}</span></td><td>${esc(v.rejectedByName||"")}</td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><i>${esc(v.rejectionReason||"")}</i></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm ap-review" onclick="apReview('award','${esc(x.id)}')">Revise</button></td></tr>`; }).join("");
   const exRows=exec.map(x=>{ const r=x.rec||{}, p=x.ev.awardPlan||{};
-    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${p.amountFinal!=null?usd(p.amountFinal):"—"}</td><td><span class="status s-approved">Approved — Awaiting Execution</span></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm" onclick="apReview('award','${esc(x.id)}')">Open</button></td></tr>`; }).join("");
+    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${p.amountFinal!=null?usd(p.amountFinal):"—"}</td><td><span class="status s-approved">Approved — Awaiting Execution</span></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm ap-review" onclick="apReview('award','${esc(x.id)}')">Open</button></td></tr>`; }).join("");
   document.getElementById("content").innerHTML=`
    <div class="pcc">
     <div class="pcc-head"><div><h2 class="pcc-title">Approval Center</h2>
@@ -8590,13 +8595,21 @@ function openQuoteEval(recId){
   _qe=JSON.parse(JSON.stringify(qeFor(recId)||qeNew(r)));
   qeRender();
 }
+const AW_FROZEN_STATES=["submitted","recommended","approved_1","approved_finance","approved_final","executed"];
+function awFrozenForMe(stored){
+  const ap=stored&&stored.awardApproval; if(!ap) return false;
+  if(AW_FROZEN_STATES.includes(ap.state)) return true;                        // frozen for EVERY role incl. Admin/Super
+  if(ap.state==="revision_required") return !(ap.revision&&SESSION&&ap.revision.revisionOwnerUid===SESSION.uid);
+  return false;
+}
 function qeCanEdit(){
   const r=DB.procurement.find(x=>x.id===_qeRecId); if(!r||!qeCanPrepare(r)) return false;
   const stored=qeFor(_qeRecId);
+  if(stored&&awFrozenForMe(stored)) return false;                             // v8.11.6 mid-chain lock, all roles
   if(typeof isEntrySession==="function"&&isEntrySession()){
-    if(stored&&stored.status==="Supplier Selected") return false;            // legacy finalized (v8.10.3)
-    if(stored&&!awEntryEditable(stored)) return false;                       // submitted / in approval chain
-  } else if(stored&&awPlanFrozen(stored)) { /* admins keep viewing; plan edits blocked in save */ }
+    if(stored&&stored.status==="Supplier Selected") return false;             // legacy finalized (v8.10.3)
+    if(stored&&!awEntryEditable(stored)) return false;
+  }
   return true;
 }
 function qeRender(){
@@ -8688,7 +8701,7 @@ function qeRender(){
     ${(function(){ const ap=awApprovalOf(ev);
       if(ev.selection&&!ap) return selHTML;   // legacy v8.10 selection display, unchanged
       const canPlan=!isViewer()&&!isEntrySession()||(isEntrySession()&&edit);
-      if(!canPlan||awPlanFrozen(ev)||["submitted","recommended","approved_1","approved_finance"].includes((ap||{}).state||"")) return "";
+      if(!canPlan||awFrozenForMe(ev)) return "";
       const p=ev.awardPlan||{};
       return `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;border:1px dashed var(--border);border-radius:10px;padding:10px 12px">
         <div class="field" style="min-width:200px"><label>Recommended Supplier</label><select onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}) && (function(v){const b=_qe.bidders.find(x=>x.bid===v)||{};_qe.awardPlan.bidderId=v;_qe.awardPlan.supplier=b.supplier||'';_qe.awardPlan.amountOriginal=b.amountOriginal;_qe.awardPlan.amountFinal=b.amountFinal||b.amountOriginal;})(this.value)"><option value="">—</option>${bl.map(b=>`<option value="${esc(b.bid)}" ${p.bidderId===b.bid?"selected":""}>${esc(b.supplier||"Bidder")} — ${qeBidderAmount(ev,b)!=null?qeUSD(qeBidderAmount(ev,b)):"n/a"}</option>`).join("")}</select></div>
@@ -8764,46 +8777,84 @@ function awActionsHTML(ev,r){
   if(/Recommended/.test(s.roleLabel)) return btn("Submit Recommendation for Approval","awRecommend()")+btn("Return for Revision…","awReject()","btn-ghost");
   return btn("Approve","awDecide(true)")+btn("Reject…","awDecide(false)","btn-ghost");
 }
-async function awPersist(ev){ const i=DB.quoteEvals.findIndex(e=>e.id===ev.id); if(i>=0) DB.quoteEvals[i]=JSON.parse(JSON.stringify(ev)); else DB.quoteEvals.push(JSON.parse(JSON.stringify(ev)));
-  saveDB(); if(isEntrySession()&&typeof fbEntryPushRecord==="function") fbEntryPushRecord("quoteEvals",ev.id); _qe=JSON.parse(JSON.stringify(ev)); qeRender(); }
+/* v8.11.6 APPROVAL COMMIT INTEGRITY: every award-workflow transition persists to
+   Firestore with an AWAITED, ROLE-INDEPENDENT targeted write BEFORE any local
+   state, modal, Approval Center, or bell changes. Viewer sessions are excluded
+   from the generic fbFlush() by design, so this path must never rely on it. */
+async function awPushDecision(ev){
+  if(!(typeof fbActive==="function" && fbActive() && _fb.app)) return true;   // pure-local mode
+  try{
+    ev.updated=Date.now();
+    const docBody=(typeof fbStripFiles==="function")?fbStripFiles(JSON.parse(JSON.stringify(ev))):JSON.parse(JSON.stringify(ev));
+    const fs=_fb.app.firestore();
+    const b=fs.batch();
+    b.set(fs.collection("quoteEvals").doc(String(ev.id)), docBody);
+    await b.commit();
+    return true;
+  }catch(e){ console.error("[award] decision write REJECTED/FAILED:", e&&e.code, e&&e.message); return false; }
+}
+async function awCommit(evNext, okTitle, okSub){
+  const ok=await awPushDecision(evNext);
+  if(!ok){
+    toast("Approval NOT saved","The server rejected or the write failed. The workflow was NOT advanced — your step remains pending. Please try again.","err",11000);
+    qeRender();                                        // repaint from the UNCHANGED authoritative state
+    return false;
+  }
+  const i=DB.quoteEvals.findIndex(e=>e.id===evNext.id);
+  if(i>=0) DB.quoteEvals[i]=JSON.parse(JSON.stringify(evNext)); else DB.quoteEvals.push(JSON.parse(JSON.stringify(evNext)));
+  saveDB();
+  _qe=JSON.parse(JSON.stringify(evNext));
+  qeRender(); buildNav(); if(typeof renderNotifBell==="function") renderNotifBell();
+  if(typeof CURRENT!=="undefined" && CURRENT==="approvals" && typeof renderApprovals==="function") renderApprovals();
+  if(okTitle) toast(okTitle, okSub||"", "ok", 7000);
+  return true;
+}
 function awRequirePlan(){ const p=_qe.awardPlan; if(!p||!p.bidderId||!(p.justification||"").trim()){ toast("Award Plan incomplete","Pick the recommended supplier and enter the justification.","err",8000); return false; } return true; }
-function awEnsureApproval(){
-  if(_qe.awardApproval) return _qe.awardApproval;
+function awEnsureApproval(ev){
+  ev=ev||_qe;
+  if(ev.awardApproval) return ev.awardApproval;
   if(!awConfigComplete()){ toast("Award Workflow Configuration is incomplete","Preparation can continue, but approval submission is blocked until Super Admin configures all four workflow identities (Settings → Award Workflow).","err",11000); return null; }
   const route=awBuildRoute({uid:SESSION.uid,legacyId:SESSION.id,name:SESSION.name});
-  _qe.awardApproval={route:route.route,steps:route.steps,currentSeq:1,state:"draft",revision:null,revisions:[],execution:null};
-  return _qe.awardApproval;
+  ev.awardApproval={route:route.route,steps:route.steps,currentSeq:1,state:"draft",revision:null,revisions:[],execution:null};
+  return ev.awardApproval;
 }
 async function awSubmit(){ // Route A step 1 (preparer)
-  if(!awRequirePlan()) return;                       // v8.11.3: refusal must leave NO chain behind
-  const ap=awEnsureApproval(); if(!ap) return;
-  const s=awCurrentStep(ap); if(!awIsMineNow(ap)) { toast("Not your step","","err"); return; }
+  if(!awRequirePlan()) return;
+  const ev=JSON.parse(JSON.stringify(_qe));
+  const ap=awEnsureApproval(ev); if(!ap) return;
+  const s=awCurrentStep(ap); if(!(s&&SESSION&&s.uid===SESSION.uid)){ toast("Not your step","","err"); return; }
   s.action="submitted"; s.at=Date.now(); ap.state="submitted"; ap.currentSeq=s.seq+1; ap.revision=null;
-  await awPersist(_qe); toast("Submitted for procurement review","","ok");
+  await awCommit(ev,"Submitted for procurement review");
 }
 async function awRecommend(){ // Bunny
   if(!awRequirePlan()) return;
-  const ap=awEnsureApproval(); if(!ap) return;
-  if(!awIsMineNow(ap)){ toast("Not your step","","err"); return; }
-  const s=awCurrentStep(ap); s.action="recommended"; s.at=Date.now(); ap.state="recommended"; ap.currentSeq=s.seq+1; ap.revision=null;
-  await awPersist(_qe); toast("Recommendation submitted for approval","","ok");
+  const ev=JSON.parse(JSON.stringify(_qe));
+  const ap=awEnsureApproval(ev); if(!ap) return;
+  const s=awCurrentStep(ap); if(!(s&&SESSION&&s.uid===SESSION.uid)){ toast("Not your step","","err"); return; }
+  s.action="recommended"; s.at=Date.now(); ap.state="recommended"; ap.currentSeq=s.seq+1; ap.revision=null;
+  await awCommit(ev,"Recommendation submitted for approval");
 }
 async function awDecide(approve){ // Sreynet / Ly / In Sophoan
-  const ap=awApprovalOf(_qe); if(!ap||!awIsMineNow(ap)){ toast("Not your step","","err"); return; }
-  const s=awCurrentStep(ap);
   if(!approve){ awReject(); return; }
+  const stored=awApprovalOf(_qe); if(!stored||!awIsMineNow(stored)){ toast("Not your step","","err"); return; }
+  const ev=JSON.parse(JSON.stringify(_qe));
+  const ap=awApprovalOf(ev); const s=awCurrentStep(ap);
+  if(!(s&&SESSION&&s.uid===SESSION.uid)){ toast("Not your step","","err"); return; }
   s.action="approved"; s.at=Date.now();
   const last=ap.steps[ap.steps.length-1].seq;
   if(s.seq===last){ ap.state="approved_final"; }
   else { ap.currentSeq=s.seq+1; ap.state=(s.roleLabel==="Approval")?"approved_1":"approved_finance"; }
-  await awPersist(_qe); toast(ap.state==="approved_final"?"Final approval recorded — Awaiting Execution":"Approved","","ok",7000);
+  await awCommit(ev, ap.state==="approved_final"?"Final approval recorded — Awaiting Execution":"Approved");
 }
 function awReject(){
   const ap=awApprovalOf(_qe); if(!ap||!awIsMineNow(ap)) return;
   const s=awCurrentStep(ap);
-  confirmModal("Return for revision","Enter the rejection / revision reason:<br><input id='aw_rej' style='width:100%;margin-top:6px'>",()=>{
+  confirmModal("Return for revision","Enter the rejection / revision reason:<br><input id='aw_rej' style='width:100%;margin-top:6px'>",async ()=>{
     const reason=(document.getElementById("aw_rej").value||"").trim();
     if(!reason){ toast("Reason required","","err"); return; }
+    const ev=JSON.parse(JSON.stringify(_qe));
+    const ap=awApprovalOf(ev); const s=awCurrentStep(ap);
+    if(!(s&&SESSION&&s.uid===SESSION.uid)){ toast("Not your step","","err"); return; }
     // owner: reviewer rejects -> original preparer (Route A); any approver rejects -> reviewer (Bunny)
     const c=awConfig(); const prep=ap.steps[0];
     const toPrep=/Recommended/.test(s.roleLabel)&&ap.route==="A";
@@ -8816,31 +8867,53 @@ function awReject(){
     ap.steps.forEach(x=>{ if(x.seq>=owner.seq&&x.seq!==s.seq){ x.action=null; x.at=null; } });
     ap.revision={revisionOwnerUid:owner.uid,revisionOwnerLegacyId:owner.legacyId,revisionOwnerName:owner.name,returnToSeq:owner.seq,rejectedByUid:SESSION.uid,rejectedByName:SESSION.name,rejectionReason:reason,at:Date.now()};
     ap.state="revision_required"; ap.currentSeq=owner.seq;
-    awPersist(_qe); toast("Returned for revision","","ok");
+    await awCommit(ev,"Returned for revision");
   },"Return for Revision",false,()=>{});
 }
-async function awApply(){ // Apply Approved Award — single supplier, idempotent, cloud-first
+async function awApply(){ // Apply Approved Award — ONE atomic WriteBatch across BOTH authoritative documents
   const r=DB.procurement.find(x=>x.id===_qeRecId); const ev=_qe; const ap=awApprovalOf(ev);
   if(isEntrySession()||isViewer()){ toast("Not permitted","","err"); return; }
+  if(!r){ toast("Source procurement record not found","","err"); return; }
   if(!ap||ap.state!=="approved_final"){ if(ap&&ap.state==="executed"){ toast("Already executed","Opening the executed result.","err",7000); qeRender(); } else toast("Not awaiting execution","","err"); return; }
-  const p=ev.awardPlan, b=(ev.bidders||[]).find(x=>x.bid===p.bidderId)||{};
+  const p=ev.awardPlan||{};
+  if(!p.bidderId||!(p.justification||"").trim()){ toast("Approved Award Plan incomplete","","err"); return; }
+  const b=(ev.bidders||[]).find(x=>x.bid===p.bidderId)||{};
   const orig=Number(p.amountOriginal)||Number(b.amountOriginal)||0, award=Number(p.amountFinal)||Number(b.amountFinal)||orig;
-  // mutate copies; commit locally only after building everything (single saveDB)
+  /* Build BOTH next documents on deep copies — nothing local mutates before the commit. */
   const evN=JSON.parse(JSON.stringify(ev));
   evN.awardApproval.state="executed";
   evN.awardApproval.execution={state:"executed",executedAt:Date.now(),executedByUid:SESSION.uid,executedByName:SESSION.name,generatedRecordIds:[]};
   evN.status="Supplier Selected";
   evN.selection={bidderId:p.bidderId,supplier:p.supplier,amountOriginal:orig,amountFinal:award,date:Date.now(),byUid:SESSION.uid,byId:SESSION.id,byName:SESSION.name,reasons:p.reasons||[],justification:p.justification||"",viaApprovedAward:true};
-  r.history=r.history||[];
-  if(procIsChild(r)){ r.quotationAmount=orig; r.committedAmount=award; }
-  else { r.selectedAwardAmount=award; }
-  if(p.supplier) r.supplier=p.supplier;
-  if(p.poRequired) r.poRequired=p.poRequired;
-  r.history.push({by:SESSION.name,at:Date.now(),action:"Approved Award executed: "+p.supplier+" — quotation "+orig+", award "+award});
-  r.updated=Date.now();
-  const i=DB.quoteEvals.findIndex(e=>e.id===evN.id); if(i>=0) DB.quoteEvals[i]=evN; else DB.quoteEvals.push(evN);
+  evN.updated=Date.now();
+  const rN=JSON.parse(JSON.stringify(r));
+  if(procIsChild(rN)){ rN.quotationAmount=orig; rN.committedAmount=award; }
+  else { rN.selectedAwardAmount=award; }
+  if(p.supplier) rN.supplier=p.supplier;
+  if(p.poRequired) rN.poRequired=p.poRequired;
+  rN.history=rN.history||[];
+  rN.history.push({by:SESSION.name,at:Date.now(),action:"Approved Award executed: "+p.supplier+" — quotation "+orig+", award "+award});
+  rN.updated=Date.now();
+  /* ONE atomic server commit: the evaluation can never be executed without the record handoff. */
+  if(typeof fbActive==="function" && fbActive() && _fb.app){
+    try{
+      const fs=_fb.app.firestore(); const batch=fs.batch();
+      batch.set(fs.collection("quoteEvals").doc(String(evN.id)), (typeof fbStripFiles==="function")?fbStripFiles(JSON.parse(JSON.stringify(evN))):evN);
+      batch.set(fs.collection("procurement").doc(String(rN.id)), (typeof fbStripFiles==="function")?fbStripFiles(JSON.parse(JSON.stringify(rN))):rN);
+      await batch.commit();
+    }catch(e){
+      console.error("[award] atomic execution batch FAILED:", e&&e.code, e&&e.message);
+      toast("Approved Award was NOT applied","No data was changed — the evaluation remains Approved — Awaiting Execution. Please try again.","err",11000);
+      qeRender(); return;
+    }
+  }
+  /* Server confirmed: commit locally and refresh every surface. */
+  const qi=DB.quoteEvals.findIndex(e=>e.id===evN.id); if(qi>=0) DB.quoteEvals[qi]=JSON.parse(JSON.stringify(evN)); else DB.quoteEvals.push(JSON.parse(JSON.stringify(evN)));
+  const ri=DB.procurement.findIndex(x=>x.id===rN.id); if(ri>=0) DB.procurement[ri]=JSON.parse(JSON.stringify(rN));
   saveDB(); _qe=JSON.parse(JSON.stringify(evN));
-  toast("Award executed",p.supplier+" — "+qeUSD(award),"ok",8000); qeRender();
+  toast("Award executed",p.supplier+" — "+qeUSD(award),"ok",8000);
+  qeRender(); buildNav(); if(typeof renderNotifBell==="function") renderNotifBell();
+  if(typeof CURRENT!=="undefined" && CURRENT==="approvals" && typeof renderApprovals==="function") renderApprovals();
 }
 
 /* Application safety limits (not a schema redesign): a full evaluation at these
@@ -8906,6 +8979,8 @@ async function qeAttach(i,k,inp){
 async function qeSave(silent){
   const r=DB.procurement.find(x=>x.id===_qeRecId); if(!r) return;
   if(!qeCanPrepare(r)){ toast("Not permitted","","err"); return; }
+  { const stored=qeFor(_qeRecId);
+    if(stored&&awFrozenForMe(stored)){ toast("Evaluation is frozen","The Award Plan is in the approval workflow. Content can change only through formal Revision Required routing to its owner.","err",10000); return; } }
   { const stored=qeFor(_qeRecId);   // v8.11.0: refuse BEFORE local mutation — no local/cloud divergence
     if(typeof isEntrySession==="function"&&isEntrySession()&&stored){
       if(stored.status==="Supplier Selected"){ toast("View only","This evaluation was finalized. No changes are possible.","err",8000); return; }
