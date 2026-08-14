@@ -962,6 +962,7 @@ const FILE_TYPES = ".pdf,.jpg,.jpeg,.png,.xls,.xlsx,.dwg,.doc,.docx,.skp";
 
 const MODULES = [
   {id:"dashboard",  label:"Dashboard",         grp:"Workspace", icon:'<path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/>'},
+  {id:"approvals",  label:"Approval Center",   grp:"Workspace", icon:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'},
   {id:"procurement",label:"Procurement",       grp:"Tracking",  icon:'<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/>'},
   /* Construction Project removed from sidebar per user request (data & routes preserved for backups; re-enable by uncommenting):
   {id:"projects",   label:"Construction Project", grp:"Tracking",  icon:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'},
@@ -2109,13 +2110,14 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.3";
+const APP_VERSION = "v8.11.4";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.11.4: Approval Center & In-App Approval Notifications — a new sidebar Approval Center with a live badge; a unified, COMPUTED inbox (Bidder Award + Purchase Order) where membership means the signed-in UID is the stored current workflow step; waiting-time indicators (<24h green, 1–2 days orange, >2 days red, visibility only); Revision Required shown only to its revision owner; Approved — Awaiting Execution listed separately for Admin/Super; the Procurement Pending My Approval quick filter and the top-bar bell now derive from the same shared getMyPendingApprovals() helper (Review opens the existing evaluation/PO screens — approval never happens from the popup); dashboard cards link into the Center; no documents copied, no rules changed",
     "v8.11.3: Award workflow entry point exposed — a pre-chain 'Award Approval — Not Yet Started' panel now shows Submit for Procurement Review to the assigned Entry preparer (Route A via the existing awSubmit) and Submit Recommendation for Approval to Bunny/Admin (Route B via awRecommend); viewers see no action; all validation, route construction, and state logic unchanged",
     "v8.11.2: bidder lifecycle hygiene — removing a bidder confirms and cleans its item-comparison entries (blocked while it is the recommended supplier); orphaned comparison columns from delete+re-add are detected, surfaced, and manually re-attachable to a chosen live bidder (or discarded) one at a time; saving is blocked while unresolved orphans exist; bidder IDs remain stable through save/reload",
     "v8.11.1: Award Workflow Configuration save fixed — identities resolve through the canonical resolveUserAssignment() over a force-refreshed profiles cache (the previous lookup addressed a container that never existed, failing all four positions); legacy-ID matching is now trimmed and case-insensitive everywhere the resolver is used; validation unchanged — four trusted UIDs or refusal",
@@ -2591,6 +2593,7 @@ function buildNav(){
     if(m.id==="suppliers") badge=`<span class="badge">${DB.suppliers.length}</span>`;
     if(m.id==="purchaseorder"){ const pend=(typeof poMyPendingApprovals==="function")?poMyPendingApprovals().length:0; badge=`<span class="badge">${DB.po.length}</span>`+(pend>0?`<span class="badge badge-alert" title="${pend} purchase order${pend!==1?'s':''} awaiting your approval">${pend}</span>`:""); }
     if(m.id==="stock") badge=`<span class="badge">${DB.stock.length}</span>`;
+    if(m.id==="approvals"){ const n=(typeof getMyPendingApprovals==="function")?getMyPendingApprovals().length:0; badge=n>0?`<span class="badge badge-alert" title="${n} approval${n!==1?'s':''} waiting for your action">${n}</span>`:`<span class="badge">0</span>`; }
     if(m.id==="printake"){ const n=(typeof intakeCount==="function")?intakeCount():0; badge=n>0?`<span class="badge badge-alert" title="${n} purchase request(s) waiting to confirm">${n}</span>`:`<span class="badge">0</span>`; }
     if(m.id==="procurement"){
       // Single clean nav item — categories are now selected via the filter dropdown on the page,
@@ -2683,10 +2686,10 @@ function navigate(mod){
   document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.mod===mod));
   const m=MODULES.find(x=>x.id===mod);
   document.getElementById("pageTitle").textContent=m.label;
-  const crumbs={dashboard:"Overview of all operations",procurement:"Local & overseas purchasing records",projects:"Multi-site construction project management and control",maintenance:"HVAC, ICT & IT service tracking",actasks:"Simple AC job list — budget, invoice & status tracking",printake:"Purchase Requests posted by your team in Telegram",suppliers:"Vendor directory & credentials",budget:"Budget allocation & spend tracking",purchaseorder:"Purchase orders & delivery tracking",stock:"Inventory & stock level management",reports:"Generate & export PDF reports",backup:"Import, export & Telegram sync",users:"Manage admin accounts",settings:"System preferences & data reset"};
+  const crumbs={dashboard:"Overview of all operations",approvals:"Approvals currently waiting for your action",procurement:"Local & overseas purchasing records",projects:"Multi-site construction project management and control",maintenance:"HVAC, ICT & IT service tracking",actasks:"Simple AC job list — budget, invoice & status tracking",printake:"Purchase Requests posted by your team in Telegram",suppliers:"Vendor directory & credentials",budget:"Budget allocation & spend tracking",purchaseorder:"Purchase orders & delivery tracking",stock:"Inventory & stock level management",reports:"Generate & export PDF reports",backup:"Import, export & Telegram sync",users:"Manage admin accounts",settings:"System preferences & data reset"};
   document.getElementById("pageCrumb").textContent=crumbs[mod]||"";
   const c=document.getElementById("content"); c.scrollTop=0;
-  const fn={dashboard:renderDashboard,procurement:()=>renderRecords("procurement"),projects:renderConstruction,maintenance:renderMaintenance,printake:renderPRIntake,suppliers:renderSuppliers,budget:renderBudget,purchaseorder:renderPO,stock:renderStock,reports:renderReports,backup:renderBackup,users:renderUsers,settings:renderSettings}[mod];
+  const fn={dashboard:renderDashboard,approvals:renderApprovals,procurement:()=>renderRecords("procurement"),projects:renderConstruction,maintenance:renderMaintenance,printake:renderPRIntake,suppliers:renderSuppliers,budget:renderBudget,purchaseorder:renderPO,stock:renderStock,reports:renderReports,backup:renderBackup,users:renderUsers,settings:renderSettings}[mod];
   fn();
   buildNav();
 }
@@ -2777,7 +2780,13 @@ function renderDashboard(){
     alert:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
     box:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>'
   };
+  const _apP=getMyPendingApprovals().length,_apR=getMyRevisions().length,_apX=getAwaitingExecution().length;
   document.getElementById("content").innerHTML=`
+    ${(_apP||_apR||_apX)?`<div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
+      <div class="kpi" style="cursor:pointer" onclick="navigate('approvals')"><div class="ic ic-orange">${I.clock}</div><div class="val">${_apP}</div><div class="lbl">My Pending Approvals</div></div>
+      ${_apR?`<div class="kpi" style="cursor:pointer" onclick="navigate('approvals')"><div class="ic ic-red">${I.alert}</div><div class="val">${_apR}</div><div class="lbl">Revision Required</div></div>`:""}
+      ${_apX?`<div class="kpi" style="cursor:pointer" onclick="navigate('approvals')"><div class="ic ic-purple">${I.check}</div><div class="val">${_apX}</div><div class="lbl">Awaiting Execution</div></div>`:""}
+    </div>`:""}
     <div class="kpi-grid">
       ${kpi(I.cart,"ic-blue",s.nProc,"Procurement Records")}
       ${kpi(I.proj,"ic-purple",s.nProj,"Project Records")}
@@ -3016,7 +3025,9 @@ function procQuickMatch(r,q){
        responsible display name never determines membership, authority or
        ownership — a name-only match is historical information. */
     case "mine": return !!(SESSION && SESSION.uid && ((r.assignedToUid && r.assignedToUid===SESSION.uid) || (procIsParent(r) && parentTeamUids(r).includes(SESSION.uid))));
-    case "approval": return procStage(r)==="Pending Approval";
+    case "approval": { if(procStage(r)==="Pending Approval") return true;
+      /* v8.11.4: same shared helper as the Approval Center — the two can never disagree */
+      return getMyPendingApprovals().some(x=>(x.kind==="award"&&x.ev.id===r.id)||(x.kind==="po"&&x.po&&x.po.fromRecord===r.id)); }
     case "overdue": return isOverdue(r);
     case "payment": { const paid=(Number(r.deposit)||0)+(Number(r.finalPay)||0); return paid < (Number(r.budget)||0) && !["Completed","Cancelled"].includes(procStage(r)); }
     case "delivery": { if(!r.due) return false; const d=new Date(r.due), n=new Date(); return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear(); }
@@ -6224,7 +6235,76 @@ function poUnseenDecisions(){
   const seen=poSeenDecisions();
   return poMyDecisionUpdates().filter(p=> !seen.includes(p.id+":"+(p.approval.decidedAt||0)) );
 }
-function poNotifCount(){ return poMyPendingApprovals().length + poUnseenDecisions().length; }
+/* ===== v8.11.4 APPROVAL CENTER — a COMPUTED inbox over the authoritative
+   workflow documents. Membership = the logged-in UID is the STORED current
+   step (awards) or the existing poCanDecide authority (POs). Nothing is
+   copied, moved, or duplicated; one source of truth. ===== */
+const AW_PENDING_STATES=["submitted","recommended","approved_1","approved_finance"];
+function awWaitingSince(ap,ev){ let m=0; ((ap&&ap.steps)||[]).forEach(s=>{ if(s.action&&Number(s.at)>m) m=Number(s.at); }); return m||Number(ev&&ev.updated)||Number(ev&&ev.created)||0; }
+function apRecOf(ev){ return DB.procurement.find(x=>x.id===(ev.recordId||ev.id))||null; }
+function getMyPendingApprovals(){
+  if(!SESSION) return [];
+  const out=[];
+  (DB.quoteEvals||[]).forEach(ev=>{
+    const ap=ev&&ev.awardApproval; if(!ap||!AW_PENDING_STATES.includes(ap.state)) return;
+    const s=awCurrentStep(ap); if(!(s&&SESSION.uid&&s.uid===SESSION.uid)) return;
+    out.push({kind:"award", id:ev.id, ev, ap, step:s, rec:apRecOf(ev), since:awWaitingSince(ap,ev)});
+  });
+  poMyPendingApprovals().forEach(p=>out.push({kind:"po", id:p.id, po:p, since:Number(p.approval&&p.approval.submittedAt)||Number(p.updated)||0}));
+  return out.sort((a,b)=>(a.since||0)-(b.since||0));
+}
+function getMyRevisions(){
+  if(!SESSION) return [];
+  return (DB.quoteEvals||[]).filter(ev=>{ const ap=ev&&ev.awardApproval;
+    return ap&&ap.state==="revision_required"&&ap.revision&&SESSION.uid&&ap.revision.revisionOwnerUid===SESSION.uid; })
+    .map(ev=>({kind:"revision", id:ev.id, ev, ap:ev.awardApproval, rec:apRecOf(ev), since:Number(ev.awardApproval.revision.at)||0}));
+}
+function getAwaitingExecution(){
+  if(!SESSION||isEntrySession()||isViewer()) return [];
+  return (DB.quoteEvals||[]).filter(ev=>ev&&ev.awardApproval&&ev.awardApproval.state==="approved_final")
+    .map(ev=>({kind:"execution", id:ev.id, ev, ap:ev.awardApproval, rec:apRecOf(ev), since:awWaitingSince(ev.awardApproval,ev)}));
+}
+function apWaitColor(since){ const h=(Date.now()-(Number(since)||Date.now()))/3600000; return h<24?"#059669":(h<=48?"#d97706":"#dc2626"); }
+function apWaitLabel(since){ if(!since) return "—"; let m=Math.max(0,Math.floor((Date.now()-since)/60000));
+  const d=Math.floor(m/1440); m-=d*1440; const h=Math.floor(m/60); m-=h*60;
+  return d?`${d}d ${h}h`:(h?`${h}h ${m}m`:`${m}m`); }
+function apReview(kind,id){
+  if(kind==="po"){ notifOpenPO(id); return; }
+  closeNotifPanel&&closeNotifPanel();
+  openQuoteEval(id);   // the EXISTING evaluation/approval screen — never a second approval form
+}
+function renderApprovals(){
+  const pend=getMyPendingApprovals(), rev=getMyRevisions(), exec=getAwaitingExecution();
+  const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const wait=x=>`<span style="font-weight:700;color:${apWaitColor(x.since)}">${apWaitLabel(x.since)}</span>`;
+  const rowA=x=>{ const r=x.rec||{}, p=x.ev.awardPlan||{}; const prep=(x.ap.steps&&x.ap.steps[0])||{};
+    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(r.name||"")}</td><td><span class="chip-cat" style="background:#4f46e518;color:#4338ca">Bidder Award</span></td><td>${esc(prep.name||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${p.amountFinal!=null?usd(p.amountFinal):"—"}</td><td>${esc(x.step.roleLabel)}</td><td>${fmtStamp(x.since)}</td><td>${wait(x)}</td><td><span class="status s-pendingapproval">Pending My Review</span></td><td><button class="btn btn-primary btn-sm" onclick="apReview('award','${esc(x.id)}')">Review</button></td></tr>`; };
+  const rowP=x=>{ const p=x.po, a=p.approval||{};
+    return `<tr><td style="font-weight:700">${esc(p.poNo||p.id)}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(p.pr||p.quoteDesc||"")}</td><td><span class="chip-cat" style="background:#05966918;color:#047857">Purchase Order</span></td><td>${esc(a.submittedByName||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${usd(p.amount)}</td><td>PO Approval</td><td>${fmtStamp(x.since)}</td><td>${wait(x)}</td><td><span class="status s-pendingapproval">Pending My Approval</span></td><td><button class="btn btn-primary btn-sm" onclick="apReview('po','${esc(p.id)}')">Review</button></td></tr>`; };
+  const table=rows=>`<div style="overflow:auto;border:1px solid var(--border);border-radius:11px;background:var(--surface)"><table class="tbl" style="font-size:12px;min-width:1100px"><thead><tr><th>Doc ID</th><th>Item / Scope</th><th>Approval Type</th><th>Submitted / Prepared By</th><th>Recommended Supplier</th><th class="num">Amount</th><th>Current Step</th><th>Waiting Since</th><th>Waiting Time</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const revRows=rev.map(x=>{ const r=x.rec||{}, v=x.ap.revision||{};
+    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td><span class="status s-cancelled">Revision Required — assigned to ${esc(v.revisionOwnerName||v.revisionOwnerLegacyId||"")}</span></td><td>${esc(v.rejectedByName||"")}</td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><i>${esc(v.rejectionReason||"")}</i></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm" onclick="apReview('award','${esc(x.id)}')">Revise</button></td></tr>`; }).join("");
+  const exRows=exec.map(x=>{ const r=x.rec||{}, p=x.ev.awardPlan||{};
+    return `<tr><td style="font-weight:700">${esc(r.id?qeDisplayId(r):x.id)}</td><td>${esc(r.name||"")}</td><td>${esc(p.supplier||"—")}</td><td class="num">${p.amountFinal!=null?usd(p.amountFinal):"—"}</td><td><span class="status s-approved">Approved — Awaiting Execution</span></td><td>${wait(x)}</td><td><button class="btn btn-primary btn-sm" onclick="apReview('award','${esc(x.id)}')">Open</button></td></tr>`; }).join("");
+  document.getElementById("content").innerHTML=`
+   <div class="pcc">
+    <div class="pcc-head"><div><h2 class="pcc-title">Approval Center</h2>
+      <p class="pcc-sub">A live workflow inbox computed from the authoritative Bidder Award and Purchase Order documents — nothing is copied or duplicated.</p></div></div>
+    <div class="pcc-kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="pcc-kpi"><div class="pcc-kpi-val" style="color:var(--primary)">${pend.length}</div><div class="pcc-kpi-lbl">My Pending Approvals</div></div>
+      <div class="pcc-kpi"><div class="pcc-kpi-val" style="color:#dc2626">${rev.length}</div><div class="pcc-kpi-lbl">Revision Required (mine)</div></div>
+      ${(!isEntrySession()&&!isViewer())?`<div class="pcc-kpi"><div class="pcc-kpi-val" style="color:#7c3aed">${exec.length}</div><div class="pcc-kpi-lbl">Awaiting Execution</div></div>`:""}
+    </div>
+    <h3 style="font-size:14px;margin:4px 0 8px">My Pending Approvals (${pend.length})</h3>
+    ${pend.length?table(pend.map(x=>x.kind==="award"?rowA(x):rowP(x)).join("")):`<div class="empty" style="padding:26px"><h4>You're all caught up</h4><p>No approval is currently waiting for your action.</p></div>`}
+    ${rev.length?`<h3 style="font-size:14px;margin:18px 0 8px">Revision Required — assigned to you (${rev.length})</h3>
+      <div style="overflow:auto;border:1px solid var(--border);border-radius:11px;background:var(--surface)"><table class="tbl" style="font-size:12px;min-width:900px"><thead><tr><th>Doc ID</th><th>Item / Scope</th><th>Status</th><th>Returned By</th><th>Reason</th><th>Waiting</th><th>Action</th></tr></thead><tbody>${revRows}</tbody></table></div>`:""}
+    ${(exec.length&&!isEntrySession()&&!isViewer())?`<h3 style="font-size:14px;margin:18px 0 8px">Approved — Awaiting Execution (${exec.length}) <span class="muted" style="font-size:11px;font-weight:500">separate from pending approvals</span></h3>
+      <div style="overflow:auto;border:1px solid var(--border);border-radius:11px;background:var(--surface)"><table class="tbl" style="font-size:12px;min-width:800px"><thead><tr><th>Doc ID</th><th>Item / Scope</th><th>Awarded Supplier</th><th class="num">Award</th><th>Status</th><th>Waiting</th><th>Action</th></tr></thead><tbody>${exRows}</tbody></table></div>`:""}
+   </div>`;
+}
+/* Bell badge = My Pending Approvals + unseen decision updates (existing behavior kept) */
+function poNotifCount(){ return getMyPendingApprovals().length + poUnseenDecisions().length; }
 
 // --- render the topbar bell badge ---
 function renderNotifBell(){
@@ -6253,19 +6333,35 @@ function closeNotifPanel(){
 }
 function notifOpenPO(id){ closeNotifPanel(); navigate("purchaseorder"); setTimeout(()=>{ if(typeof viewPO==="function") viewPO(id); },130); }
 function notifPanelHTML(){
-  const pend=poMyPendingApprovals();
+  const pend=getMyPendingApprovals();
+  const exec=getAwaitingExecution();
   const upd=poMyDecisionUpdates().slice(0,6);
   const item=(icon,color,title,sub,onclick)=>`<div class="notif-item" onclick="${onclick}">
      <div class="notif-ic" style="background:${color}22;color:${color}">${icon}</div>
      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px">${title}</div><div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub}</div></div></div>`;
   let html=`<div class="notif-head"><span style="font-weight:800;font-size:13px">Notifications</span><button class="act-btn" onclick="closeNotifPanel()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>`;
-  if(!pend.length && !upd.length){ html+=`<div class="muted" style="padding:22px 16px;text-align:center;font-size:12.5px">You're all caught up — no notifications.</div>`; return html; }
+  if(!pend.length && !upd.length && !exec.length){ html+=`<div class="muted" style="padding:22px 16px;text-align:center;font-size:12.5px">You're all caught up — no notifications.</div>`; return html; }
   if(pend.length){
     html+=`<div class="notif-group">Needs your approval (${pend.length})</div>`;
-    html+=pend.map(p=>item('<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
-      "#d97706", `${esc(p.poNo)} needs your approval`,
-      `${esc(p.supplier||"—")} · ${money(p.amount)} · from ${esc(p.approval.submittedByName||"—")}`,
-      `notifOpenPO('${p.id}')`)).join("");
+    html+=pend.map(x=>{
+      if(x.kind==="po"){ const p=x.po;
+        return item('<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+          "#d97706", `${esc(p.poNo)} needs your approval`,
+          `${esc(p.supplier||"—")} · ${money(p.amount)} · from ${esc((p.approval&&p.approval.submittedByName)||"—")} — Review Now`,
+          `apReview('po','${p.id}')`); }
+      const r=x.rec||{}, pl=x.ev.awardPlan||{}, prep=(x.ap.steps&&x.ap.steps[0])||{};
+      return item('<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+        "#4338ca", `New Award Approval Request — ${esc(r.id?qeDisplayId(r):x.id)}`,
+        `Prepared by ${esc(prep.name||"—")} · ${esc(pl.supplier||"—")} · ${money(pl.amountFinal||0)} · Waiting for: ${esc(x.step.roleLabel)} — Review Now`,
+        `apReview('award','${x.id}')`);
+    }).join("");
+  }
+  if(exec.length){
+    html+=`<div class="notif-group">${exec.length} Award${exec.length!==1?"s":""} Awaiting Execution</div>`;
+    html+=exec.map(x=>{ const r=x.rec||{}, pl=x.ev.awardPlan||{};
+      return item('<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>',
+        "#7c3aed", `${esc(r.id?qeDisplayId(r):x.id)} — Approved, awaiting execution`,
+        `${esc(pl.supplier||"—")} · ${money(pl.amountFinal||0)}`, `apReview('award','${x.id}')`); }).join("");
   }
   if(upd.length){
     html+=`<div class="notif-group">Updates on your submissions</div>`;
