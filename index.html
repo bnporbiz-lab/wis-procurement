@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.12.2";
+const APP_VERSION = "v8.12.3";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -2119,6 +2119,7 @@ const CHANGELOG = [
     "v8.12.0b verification hardening: a Case B converted execution Parent carries NO supplier-record financials (quotation/committed/selectedAward zeroed — aggregates come only from the awarded children) and receives a team list so generated children satisfy the server's team-membership validation; the executed evaluation attached to a converted Parent remains viewable while parents still cannot start new evaluations; rollup audit: parentSummary and all financial aggregates flow through procFinancialKids (scope-only excluded), while the drawer child table and child-count badges intentionally keep scope-only rows visible for audit",
     "v8.12.0 Phase 2: Split Awards — the approved Award Plan supports method Single or Split with an award-lines editor (scope/portion, supplier, amount, per-supplier PO Requirement); validation requires at least two distinct qualified suppliers, positive amounts, and the justification; the SAME Route A/B chain approves the whole plan once (no per-line approvals, plan frozen mid-chain as before); execution generates ONE record per awarded supplier in ONE atomic WriteBatch with deterministic ids {evalId}-AW{n} and counter-correct sequential numbering — Case A (Child source): awarded siblings under the same Parent while the source child becomes scope-only (financials zeroed; excluded from every rollup via procFinancialKids; PO creation blocked); Case B (Standalone source): the record converts to the execution Parent through the rules-permitted transition, keeping its Budget as the Parent budget, with awarded children beneath it; preconditions block execution when the source has a linked PO or any payments/actuals; per-child PO gating follows each approved line; the Award PDF renders the split decision as a per-line table; NO Firestore rules changes",
     "v8.11.12: Approval & execution presentation polish — the approval chain renders as ONE unified full-width container with five evenly-distributed columns separated by hairlines (green STATUS on top, then name, position from awardApproval.steps[], and date — the duplicated title headings are removed since the status word and position line carry the meaning); AWARD EXECUTION moves out of the body into a redesigned footer that replaces the system-name line (AWARD EXECUTION · Executed by · date · EXECUTED in green, or AWARD STATUS · Approved — Awaiting Execution pre-execution) with the report id, page number, and generated stamp arranged neatly on the right above a hairline; presentation-only — data, eligibility, workflow, and buttons unchanged",
+    "v8.12.3: Approval Panel Job Position — the third line under each approver in the WIS Quote Evaluation PDF now shows their organizational JOB POSITION instead of the workflow function (the green status word already conveys the function). The canonical source is the existing User Management field, relabelled Job Position and still stored as users.title, so the PO and Award panels share one source of truth; no parallel position field was introduced. Award chains snapshot each person's position into awardApproval.steps[].position at construction, carried across any route rebuild by UID (never by seq) so a later title change can never rewrite a historical approval; roleLabel is untouched and continues to drive routing. Legacy approvals with no snapshot resolve for display only: step.position, then users.title by legacyId, then uid via the profile cache, then an em dash — never a workflow function and never a system permission role. All display paths are read-only: no approval document is backfilled or rewritten",
     "v8.11.11: WIS Quote Evaluation PDF Final Layout Refinement — the logo and title block render as one centered group (logo beside the title, no longer isolated at the margin); all approval steps render in ONE horizontal row of compact same-height boxes (title · STATUS · name · date, no Name:/Function:/Date: labels) with widths weighted so long titles like Reviewed & Recommended by and long names stay on one line, and the complete row moves to the next page as an indivisible block when space is short; the digital-approval note is compact and sits directly below; AWARD EXECUTION is a single horizontal strip (AWARD EXECUTION · Executed by · date · EXECUTED) replacing the old three-row table, with an Approved — Awaiting Execution strip pre-execution; vertical spacing tightened throughout so a normal evaluation (2–3 bidders, modest items, five approvals) fits on ONE A4 landscape page without shrinking text below readability — larger reports still flow to additional pages cleanly",
     "v8.11.10: WIS Quote Evaluation PDF Redesign — the Bidder Award report is rebuilt on the WIS SUMMARY OF QUOTE EVALUATION form: A4 landscape, compact centered WIS header with dynamic procurement scope and a status stamp (APPROVED — AWAITING EXECUTION / AWARD EXECUTED); the main comparison table shows No./Description/Qty plus dynamic side-by-side supplier groups (Technical · Unit Price · Total Price under each supplier's name and quotation number) with a bold per-bidder TOTAL row — four or more suppliers continue in additional groups with the left columns repeated; a separate uncrowded Bidder Summary marks AWARDED and LOWEST as distinct concepts with the reference-only note; full-width SUPPLIER SELECTION justification plus a decision summary with Savings; approval blocks generated dynamically from awardApproval.steps[] with digital APPROVED indicators (no fake signatures, layout ready for stored signatures later); AWARD EXECUTION from awardApproval.execution; WIS date (14 Aug 2026) and USD currency formats; grey page footers; still reporting-only with zero Firestore writes",
     "v8.11.9: Bidder Award Approval PDF — a professional multi-page A4 report (landscape automatically for wide comparisons) generated purely from the saved evaluation and procurement documents with zero Firestore writes: WIS header, procurement information, full bidder comparison with the lowest quotation marked for reference (never implying automatic selection), item-by-item comparison, award decision using canonical executed financials for standalone records, the complete stored approval workflow, and execution metadata from awardApproval.execution; available from Final Approval (Approved — Awaiting Execution) and after Award Executed via the evaluation modal, Approval Center, and the Procurement drawer; sanitized filename Bidder-Award-<id>.pdf",
@@ -4677,7 +4678,7 @@ function openUserForm(uid_){
     <div class="field"><label class="req">Full Name</label><input id="u_name" value="${esc(u?.name||'')}"></div>
     <div class="field"><label class="${u?'':'req'}">Password ${u?'(leave blank to keep)':''}</label><input type="text" id="u_pass" value=""></div>
     <div class="field"><label>Role</label><select id="u_role" ${(isSelf||!isSuperSession()||(u&&SESSION&&SESSION.id===u.id))?'disabled':''} title="${isSuperSession()?'':'Super Administrator only'}"><option value="admin" ${u?.role==="admin"?'selected':''}>Administrator</option><option value="superadmin" ${u?.role==="superadmin"?'selected':''}>Super Administrator</option><option value="viewer" ${u?.role==="viewer"?'selected':''}>Approver (view + approve only)</option><option value="entry" ${u?.role==="entry"?'selected':''}>Data Entry (own procurement records only)</option></select></div>
-    <div class="field"><label>Title / Position <span class="muted" style="font-weight:400;font-size:11px">(optional)</span></label><input id="u_title" value="${esc(u?.title||'')}" placeholder="e.g. V.P. Operations"></div>
+    <div class="field"><label>Job Position <span class="muted" style="font-weight:400;font-size:11px">(optional)</span></label><input id="u_title" value="${esc(u?.title||'')}" placeholder="e.g. V.P. of Operations"></div>
     <div class="field"><label>Telegram Chat ID <span class="muted" style="font-weight:400;font-size:11px">(optional — for approval alerts)</span></label><input id="u_tgchat" value="${esc(u?.tgChatId||'')}" placeholder="e.g. 123456789"></div>
   </div>
   <p class="muted" style="font-size:11.5px;margin:12px 2px 0">The Telegram Chat ID lets this person receive Purchase Order approval alerts on their phone. They message your bot once, then use <b>@userinfobot</b> to get their Chat ID. Requires the Bot Token in Settings → Telegram Delivery.</p></div>
@@ -5566,17 +5567,73 @@ function awConfig(){ return (DB.workflowConfig||[]).find(d=>d&&d.id==="award")||
 function awConfigComplete(){ const c=awConfig(); return !!(c&&c.reviewer&&c.reviewer.uid&&c.approver1&&c.approver1.uid&&c.financeDirector&&c.financeDirector.uid&&c.finalApprover&&c.finalApprover.uid); }
 function awApprovalOf(ev){ return (ev&&ev.awardApproval)||null; }
 function awStateLabel(s){ return ({draft:"Draft",submitted:"Submitted for Procurement Review",recommended:"Recommended / Pending Approval",approved_1:"Approved by Approver / Pending Finance Director",approved_finance:"Approved by Finance Director / Pending Final Approval",approved_final:"Approved — Awaiting Execution",executed:"Award Executed",revision_required:"Revision Required"})[s]||s||"Draft"; }
-function awBuildRoute(preparer){
+/* ===== v8.12.3 Job Position (professional title) =====
+   Canonical storage is the EXISTING DB.users[].title field maintained in User
+   Management ("Job Position"). No second field is introduced: users.title already
+   feeds the PO approval panel, and a parallel `position` field would give the PO
+   and Award PDFs two competing sources of truth.
+   awTitleFor()  — resolves a person's CURRENT title. Used at chain construction
+                   to take the snapshot.
+   awStepPosition() — DISPLAY resolver for a stored step:
+                   step.position (snapshot)
+                     -> users.title by legacyId
+                     -> uid via _profCache -> legacyId -> users.title
+                     -> "—"
+   It NEVER falls back to step.roleLabel or to a system permission role
+   (Super Admin / Admin / Entry / Viewer / Approver): those are authorization
+   roles, not organizational job positions. Zero writes; tolerates a null or cold
+   _profCache; returns "—" rather than throwing, so PDF generation cannot fail. */
+function awUserTitleByLegacyId(legacyId){
+  try{
+    if(!legacyId) return "";
+    const list=(typeof DB!=="undefined" && DB && Array.isArray(DB.users))?DB.users:[];
+    const u=list.find(x=>x&&x.id===legacyId);
+    return (u&&u.title!=null)?String(u.title).trim():"";
+  }catch(e){ return ""; }
+}
+function awTitleFor(who){
+  try{
+    if(!who) return "";
+    let t=awUserTitleByLegacyId(who.legacyId||who.id||null);
+    if(t) return t;
+    if(who.uid){
+      const cache=(typeof _profCache!=="undefined" && Array.isArray(_profCache))?_profCache:[];
+      const p=cache.find(x=>x&&x.uid===who.uid);
+      if(p&&p.legacyId){ t=awUserTitleByLegacyId(p.legacyId); if(t) return t; }
+    }
+    return "";
+  }catch(e){ return ""; }
+}
+function awStepPosition(step){
+  try{
+    if(!step) return "\u2014";
+    if(step.position!=null && String(step.position).trim()) return String(step.position).trim();
+    return awTitleFor(step) || "\u2014";
+  }catch(e){ return "\u2014"; }
+}
+function awBuildRoute(preparer, prevSteps){
   const c=awConfig(); if(!c) return null;
   const isBunnyPrep=preparer.uid===c.reviewer.uid;
+  /* v8.12.3: position snapshot. A step occupied by the SAME PERSON as before keeps
+     its stored snapshot untouched, so a later title change never rewrites history;
+     a step occupied by a new person (formal reroute) snapshots that person's current
+     title. The merge key is UID, never seq — Route A and Route B have different step
+     offsets, so a seq key could carry one person's position onto another. */
+  const prev=Array.isArray(prevSteps)?prevSteps:[];
+  const pos=(who)=>{
+    const p=prev.find(x=>x&&x.uid&&who&&x.uid===who.uid&&x.position!=null&&String(x.position).trim());
+    if(p) return String(p.position).trim();
+    return awTitleFor(who);
+  };
   const steps=[];
-  if(isBunnyPrep){ steps.push({seq:1,roleLabel:"Prepared & Recommended by",uid:c.reviewer.uid,legacyId:c.reviewer.legacyId,name:c.reviewer.name,action:null,at:null,comment:""}); }
-  else { steps.push({seq:1,roleLabel:"Prepared by",uid:preparer.uid,legacyId:preparer.legacyId||preparer.id||null,name:preparer.name,action:null,at:null,comment:""});
-         steps.push({seq:2,roleLabel:"Reviewed & Recommended by",uid:c.reviewer.uid,legacyId:c.reviewer.legacyId,name:c.reviewer.name,action:null,at:null,comment:""}); }
+  if(isBunnyPrep){ steps.push({seq:1,roleLabel:"Prepared & Recommended by",uid:c.reviewer.uid,legacyId:c.reviewer.legacyId,name:c.reviewer.name,position:pos(c.reviewer),action:null,at:null,comment:""}); }
+  else { const prep={uid:preparer.uid,legacyId:preparer.legacyId||preparer.id||null,name:preparer.name};
+         steps.push({seq:1,roleLabel:"Prepared by",uid:prep.uid,legacyId:prep.legacyId,name:prep.name,position:pos(prep),action:null,at:null,comment:""});
+         steps.push({seq:2,roleLabel:"Reviewed & Recommended by",uid:c.reviewer.uid,legacyId:c.reviewer.legacyId,name:c.reviewer.name,position:pos(c.reviewer),action:null,at:null,comment:""}); }
   const base=steps.length;
-  steps.push({seq:base+1,roleLabel:"Approval",uid:c.approver1.uid,legacyId:c.approver1.legacyId,name:c.approver1.name,action:null,at:null,comment:""});
-  steps.push({seq:base+2,roleLabel:"Finance Director Approval",uid:c.financeDirector.uid,legacyId:c.financeDirector.legacyId,name:c.financeDirector.name,action:null,at:null,comment:""});
-  steps.push({seq:base+3,roleLabel:"Final Approval",uid:c.finalApprover.uid,legacyId:c.finalApprover.legacyId,name:c.finalApprover.name,action:null,at:null,comment:""});
+  steps.push({seq:base+1,roleLabel:"Approval",uid:c.approver1.uid,legacyId:c.approver1.legacyId,name:c.approver1.name,position:pos(c.approver1),action:null,at:null,comment:""});
+  steps.push({seq:base+2,roleLabel:"Finance Director Approval",uid:c.financeDirector.uid,legacyId:c.financeDirector.legacyId,name:c.financeDirector.name,position:pos(c.financeDirector),action:null,at:null,comment:""});
+  steps.push({seq:base+3,roleLabel:"Final Approval",uid:c.finalApprover.uid,legacyId:c.finalApprover.legacyId,name:c.finalApprover.name,position:pos(c.finalApprover),action:null,at:null,comment:""});
   return {route:isBunnyPrep?"B":"A",steps};
 }
 function awCurrentStep(ap){ if(!ap||!ap.steps) return null; return ap.steps.find(s=>s.seq===ap.currentSeq)||null; }
@@ -8819,7 +8876,7 @@ function awBuildPdfModel(ev,r){
     finalAward:usd(useRec&&r.committedAmount!=null?r.committedAmount:(useRec&&r.selectedAwardAmount!=null?r.selectedAwardAmount:p.amountFinal)),
     poRequired:poReqLabel(isExec&&r&&r.poRequired?r:{poRequired:p.poRequired}),
     reasons:(p.reasons||[]).join(", ")||"—", justification:p.justification||"—"};
-  const steps=(ap.steps||[]).map(s=>({seq:s.seq,name:s.name||"—",fn:s.roleLabel||"—",
+  const steps=(ap.steps||[]).map(s=>({seq:s.seq,name:s.name||"—",fn:s.roleLabel||"—",position:awStepPosition(s),
     status:s.action?({submitted:"Submitted",recommended:"Recommended",approved:"Approved",rejected:"Rejected"}[s.action]||s.action):(s.seq===ap.currentSeq&&!isExec?"Pending":"Waiting"),
     at:s.at?awPdfDate(s.at):"—"}));
   const exec=isExec&&ap.execution?{state:ap.execution.state||"executed",by:ap.execution.executedByName||"—",at:ap.execution.executedAt?awPdfDate(ap.execution.executedAt,true):"—"}:null;
@@ -8968,8 +9025,12 @@ function awDownloadAwardPDF(recId){
       let nfs=8.8; if(doc.getTextWidth){ doc.setFontSize(nfs); while(nfs>7.2&&doc.getTextWidth(String(s.name))>colW-12){ nfs-=0.25; doc.setFontSize(nfs); } } else doc.setFontSize(8.6);
       doc.setTextColor(35); doc.text(String(s.name),cx,y+29,{align:"center"});
       doc.setFont(undefined,"normal");
-      let rfs=7.6; if(doc.getTextWidth){ doc.setFontSize(rfs); while(rfs>6.6&&doc.getTextWidth(String(s.fn))>colW-12){ rfs-=0.25; doc.setFontSize(rfs); } } else doc.setFontSize(7.4);
-      doc.setTextColor(110); doc.text(String(s.fn),cx,y+41,{align:"center"});
+      /* v8.12.3: the third line is the person's organizational JOB POSITION, not
+         the workflow function — the green status word above already conveys the
+         function. s.fn is retained in the model for audit consumers only. */
+      const sPos=String(s.position||"\u2014");
+      let rfs=7.6; if(doc.getTextWidth){ doc.setFontSize(rfs); while(rfs>6.6&&doc.getTextWidth(sPos)>colW-12){ rfs-=0.25; doc.setFontSize(rfs); } } else doc.setFontSize(7.4);
+      doc.setTextColor(110); doc.text(sPos,cx,y+41,{align:"center"});
       doc.setFontSize(7.4); doc.setTextColor(130);
       doc.text(String(s.at),cx,y+52,{align:"center"});
     });
@@ -9084,7 +9145,8 @@ function awEnsureApproval(ev){
   ev=ev||_qe;
   if(ev.awardApproval) return ev.awardApproval;
   if(!awConfigComplete()){ toast("Award Workflow Configuration is incomplete","Preparation can continue, but approval submission is blocked until Super Admin configures all four workflow identities (Settings → Award Workflow).","err",11000); return null; }
-  const route=awBuildRoute({uid:SESSION.uid,legacyId:SESSION.id,name:SESSION.name});
+  const route=awBuildRoute({uid:SESSION.uid,legacyId:SESSION.id,name:SESSION.name},
+                           (ev.awardApproval&&ev.awardApproval.steps)||null);
   ev.awardApproval={route:route.route,steps:route.steps,currentSeq:1,state:"draft",revision:null,revisions:[],execution:null};
   return ev.awardApproval;
 }
