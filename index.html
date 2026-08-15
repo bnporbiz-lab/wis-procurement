@@ -2107,13 +2107,17 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.11.12";
+const APP_VERSION = "v8.12.2";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
     "Create-PO visibility: Admin/Super Admin from any Child; Entry only from a Child assigned to them; Viewer never; Parents never raise POs directly",
     "Committed-amount integrity: if the PO total is edited away from the Child committed amount, the save asks to update the Child (e.g. USD 4,300 → USD 4,500) and saves both together — Cancel saves nothing, so the two values can never silently diverge; Quotation and Actual are never touched",
+    "v8.12.2: paired with Rules revision 7b — the split-execution counter write carries the awardIds execution manifest (every generated child id in sequence order) so the server denies gap batches (manifest size must equal the claimed range and every child must match its exact manifest position); scopeOnly now changes server-side only inside an authorized split execution (Super-only revert); legacy single-child creation restored to the exact rev-6b equations",
+    "v8.12.1: paired with Firestore Rules revision 7 (range counter semantics for atomic multi-child split batches, getAfter parent-type validation enabling Case B same-batch conversion, scopeOnly protected from Entry mutation) — split-award execution becomes fully operational server-side; application logic unchanged from v8.12.0b",
+    "v8.12.0b verification hardening: a Case B converted execution Parent carries NO supplier-record financials (quotation/committed/selectedAward zeroed — aggregates come only from the awarded children) and receives a team list so generated children satisfy the server's team-membership validation; the executed evaluation attached to a converted Parent remains viewable while parents still cannot start new evaluations; rollup audit: parentSummary and all financial aggregates flow through procFinancialKids (scope-only excluded), while the drawer child table and child-count badges intentionally keep scope-only rows visible for audit",
+    "v8.12.0 Phase 2: Split Awards — the approved Award Plan supports method Single or Split with an award-lines editor (scope/portion, supplier, amount, per-supplier PO Requirement); validation requires at least two distinct qualified suppliers, positive amounts, and the justification; the SAME Route A/B chain approves the whole plan once (no per-line approvals, plan frozen mid-chain as before); execution generates ONE record per awarded supplier in ONE atomic WriteBatch with deterministic ids {evalId}-AW{n} and counter-correct sequential numbering — Case A (Child source): awarded siblings under the same Parent while the source child becomes scope-only (financials zeroed; excluded from every rollup via procFinancialKids; PO creation blocked); Case B (Standalone source): the record converts to the execution Parent through the rules-permitted transition, keeping its Budget as the Parent budget, with awarded children beneath it; preconditions block execution when the source has a linked PO or any payments/actuals; per-child PO gating follows each approved line; the Award PDF renders the split decision as a per-line table; NO Firestore rules changes",
     "v8.11.12: Approval & execution presentation polish — the approval chain renders as ONE unified full-width container with five evenly-distributed columns separated by hairlines (green STATUS on top, then name, position from awardApproval.steps[], and date — the duplicated title headings are removed since the status word and position line carry the meaning); AWARD EXECUTION moves out of the body into a redesigned footer that replaces the system-name line (AWARD EXECUTION · Executed by · date · EXECUTED in green, or AWARD STATUS · Approved — Awaiting Execution pre-execution) with the report id, page number, and generated stamp arranged neatly on the right above a hairline; presentation-only — data, eligibility, workflow, and buttons unchanged",
     "v8.11.11: WIS Quote Evaluation PDF Final Layout Refinement — the logo and title block render as one centered group (logo beside the title, no longer isolated at the margin); all approval steps render in ONE horizontal row of compact same-height boxes (title · STATUS · name · date, no Name:/Function:/Date: labels) with widths weighted so long titles like Reviewed & Recommended by and long names stay on one line, and the complete row moves to the next page as an indivisible block when space is short; the digital-approval note is compact and sits directly below; AWARD EXECUTION is a single horizontal strip (AWARD EXECUTION · Executed by · date · EXECUTED) replacing the old three-row table, with an Approved — Awaiting Execution strip pre-execution; vertical spacing tightened throughout so a normal evaluation (2–3 bidders, modest items, five approvals) fits on ONE A4 landscape page without shrinking text below readability — larger reports still flow to additional pages cleanly",
     "v8.11.10: WIS Quote Evaluation PDF Redesign — the Bidder Award report is rebuilt on the WIS SUMMARY OF QUOTE EVALUATION form: A4 landscape, compact centered WIS header with dynamic procurement scope and a status stamp (APPROVED — AWAITING EXECUTION / AWARD EXECUTED); the main comparison table shows No./Description/Qty plus dynamic side-by-side supplier groups (Technical · Unit Price · Total Price under each supplier's name and quotation number) with a bold per-bidder TOTAL row — four or more suppliers continue in additional groups with the left columns repeated; a separate uncrowded Bidder Summary marks AWARDED and LOWEST as distinct concepts with the reference-only note; full-width SUPPLIER SELECTION justification plus a decision summary with Savings; approval blocks generated dynamically from awardApproval.steps[] with digital APPROVED indicators (no fake signatures, layout ready for stored signatures later); AWARD EXECUTION from awardApproval.execution; WIS date (14 Aug 2026) and USD currency formats; grey page footers; still reporting-only with zero Firestore writes",
@@ -5127,6 +5131,7 @@ function createPOFromRecord(recId){
   { const _ev=qeFor(r.id); const _ap=_ev&&_ev.awardApproval;
     if(r.evalRequired==="required"&&_ap&&!["executed"].includes(_ap.state)){
       toast("Award Plan not yet executed","Quote Evaluation is Required: the PO becomes available after the Award Plan receives final approval AND is executed.","err",9000); return; } }
+  if(r&&r.scopeOnly){ toast("Scope-only record","This record preserves the evaluated scope of a split award. Purchase Orders are raised from the awarded supplier records.","err",9000); return; }
   if(!poCreateAllowed(r)){ toast("Purchase Order is marked Not Required for this procurement","Change the PO Requirement to Required before creating a PO.","err",9000); return; }
     const _qeSel=(function(){ const e=qeFor(r.id); return (e&&e.selection)?e.selection:null; })();
   if(procIsParent(r)){ toast("POs are raised from Children","A Parent carries the estimate; open a Child (supplier-level purchase) and create the PO there.","err",8000); return; }
@@ -5587,11 +5592,14 @@ function awPlanFrozen(ev){ const ap=awApprovalOf(ev); return !!(ap&&["approved_f
 /* v8.10.1: PO requirement labels + Create-PO gating. A record marked
    not_required is intentionally complete without a PO; a LINKED PO always wins. */
 function poReqLabel(r){ const v=r&&r.poRequired; return v==="required"?"Required":(v==="not_required"?"Not Required":"Unspecified (legacy)"); }
-function poCreateAllowed(r){ return !(r&&r.poRequired==="not_required"); }
+function poCreateAllowed(r){ if(r&&r.scopeOnly) return false; return !(r&&r.poRequired==="not_required"); }
 function procChildrenOf(parentDocId){ return (DB.procurement||[]).filter(x=>procIsChild(x)&&x.parentDocId===parentDocId); }
 function childRef(r){ const p=DB.procurement.find(x=>x.id===r.parentDocId); const base=(p&&p.pr)||(p&&p.id)||r.parentDocId||"?"; return base+"-C"+String(r.childSeq||0).padStart(2,"0"); }
+/* v8.12.0: scope-only children carry the original evaluated SCOPE after a split
+   award but hold NO financial values — every rollup excludes them by identity. */
+function procFinancialKids(parentDocId){ return procChildrenOf(parentDocId).filter(c=>!c.scopeOnly); }
 function parentSummary(p){
-  const kids=procChildrenOf(p.id);
+  const kids=procFinancialKids(p.id);
   const n=f=>kids.reduce((a,c)=>a+(Number(c[f])||0),0);
   const est=Number(p.budget)||0, quoted=n("quotationAmount"), committed=n("committedAmount"), actual=n("actualAmount");
   const paid=kids.reduce((a,c)=>a+((Number(c.deposit)||0)+(Number(c.finalPay)||0)),0);
@@ -8603,7 +8611,7 @@ function qeDisplayId(r){ return procIsChild(r)?childRef(r):procDisplayId(r); }
 function openQuoteEval(recId){
   const r=DB.procurement.find(x=>x.id===recId);
   if(!r){ toast("Record not found","","err"); return; }
-  if(procIsParent(r)){ toast("Parents have no direct Quote Evaluation","Each Child carries its own evaluation; the Parent shows the aggregate.","err",7000); return; }
+  if(procIsParent(r) && !qeFor(recId)){ toast("Parents have no direct Quote Evaluation","Each Child carries its own evaluation; the Parent shows the aggregate.","err",7000); return; }
   _qeRecId=recId;
   _qe=JSON.parse(JSON.stringify(qeFor(recId)||qeNew(r)));
   qeRender();
@@ -8716,11 +8724,25 @@ function qeRender(){
       const canPlan=!isViewer()&&!isEntrySession()||(isEntrySession()&&edit);
       if(!canPlan||awFrozenForMe(ev)) return "";
       const p=ev.awardPlan||{};
+      const isSplit=p.method==="split";
+      const splitUI=isSplit?`<div style="width:100%;border-top:1px dashed var(--border);padding-top:8px">
+        <table class="tbl" style="font-size:11.5px"><thead><tr><th>Scope / Portion</th><th>Supplier</th><th>Award Amount</th><th>PO Requirement</th><th></th></tr></thead><tbody>
+        ${(p.lines||[]).map((l,li)=>`<tr>
+          <td><input style="width:150px" value="${esc(l.desc||"")}" onchange="_qe.awardPlan.lines[${li}].desc=this.value"></td>
+          <td><select onchange="(function(v){const b=_qe.bidders.find(x=>x.bid===v)||{};const L=_qe.awardPlan.lines[${li}];L.bidderId=v;L.supplier=b.supplier||'';if(!L.amountFinal)L.amountFinal=b.amountFinal||b.amountOriginal||'';})(this.value)"><option value="">—</option>${bl.map(b=>`<option value="${esc(b.bid)}" ${l.bidderId===b.bid?"selected":""}>${esc(b.supplier||"Bidder")}</option>`).join("")}</select></td>
+          <td><input type="number" step="0.01" min="0" style="width:110px" value="${esc(l.amountFinal!=null?l.amountFinal:"")}" onchange="_qe.awardPlan.lines[${li}].amountFinal=this.value"></td>
+          <td><select onchange="_qe.awardPlan.lines[${li}].poRequired=this.value"><option value="">—</option><option value="required" ${l.poRequired==="required"?"selected":""}>Required</option><option value="not_required" ${l.poRequired==="not_required"?"selected":""}>Not Required</option></select></td>
+          <td><button class="act-btn" style="color:#dc2626" onclick="_qe.awardPlan.lines.splice(${li},1);qeRender()">✕</button></td></tr>`).join("")}
+        </tbody></table>
+        <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="(_qe.awardPlan.lines=_qe.awardPlan.lines||[]).push({desc:'',bidderId:'',supplier:'',amountFinal:'',poRequired:''});qeRender()">+ Add Award Line</button>
+        <div class="muted" style="font-size:10.5px;margin-top:4px">Each supplier group becomes ONE execution record and (where required) ONE Purchase Order. At least two distinct suppliers.</div></div>`:"";
       return `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;border:1px dashed var(--border);border-radius:10px;padding:10px 12px">
-        <div class="field" style="min-width:200px"><label>Recommended Supplier</label><select onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}) && (function(v){const b=_qe.bidders.find(x=>x.bid===v)||{};_qe.awardPlan.bidderId=v;_qe.awardPlan.supplier=b.supplier||'';_qe.awardPlan.amountOriginal=b.amountOriginal;_qe.awardPlan.amountFinal=b.amountFinal||b.amountOriginal;})(this.value)"><option value="">—</option>${bl.map(b=>`<option value="${esc(b.bid)}" ${p.bidderId===b.bid?"selected":""}>${esc(b.supplier||"Bidder")} — ${qeBidderAmount(ev,b)!=null?qeUSD(qeBidderAmount(ev,b)):"n/a"}</option>`).join("")}</select></div>
-        <div class="field" style="min-width:140px"><label>PO Requirement</label><select onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}).poRequired=this.value"><option value="">—</option><option value="required" ${p.poRequired==="required"?"selected":""}>Required</option><option value="not_required" ${p.poRequired==="not_required"?"selected":""}>Not Required</option></select></div>
+        <div class="field" style="min-width:150px"><label>Award Method</label><select onchange="(_qe.awardPlan=_qe.awardPlan||{}).method=this.value;if(this.value==='split'&&!_qe.awardPlan.lines)_qe.awardPlan.lines=[{desc:'',bidderId:'',supplier:'',amountFinal:'',poRequired:''}];qeRender()"><option value="single" ${!isSplit?"selected":""}>Single Supplier</option><option value="split" ${isSplit?"selected":""}>Split Award (multiple suppliers)</option></select></div>
+        ${isSplit?"":`<div class="field" style="min-width:200px"><label>Recommended Supplier</label><select onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}) && (function(v){const b=_qe.bidders.find(x=>x.bid===v)||{};_qe.awardPlan.bidderId=v;_qe.awardPlan.supplier=b.supplier||'';_qe.awardPlan.amountOriginal=b.amountOriginal;_qe.awardPlan.amountFinal=b.amountFinal||b.amountOriginal;})(this.value)"><option value="">—</option>${bl.map(b=>`<option value="${esc(b.bid)}" ${p.bidderId===b.bid?"selected":""}>${esc(b.supplier||"Bidder")} — ${qeBidderAmount(ev,b)!=null?qeUSD(qeBidderAmount(ev,b)):"n/a"}</option>`).join("")}</select></div>
+        <div class="field" style="min-width:140px"><label>PO Requirement</label><select onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}).poRequired=this.value"><option value="">—</option><option value="required" ${p.poRequired==="required"?"selected":""}>Required</option><option value="not_required" ${p.poRequired==="not_required"?"selected":""}>Not Required</option></select></div>`}
+        ${splitUI}
         <div class="field" style="flex:1;min-width:240px"><label>Award Plan Justification (required)</label><input value="${esc(p.justification||"")}" onchange="(_qe.awardPlan=_qe.awardPlan||{method:'single'}).justification=this.value"></div>
-        <span class="muted" style="font-size:10.5px;width:100%">Recommending does NOT change any procurement financials — only the executed approved award does. Split (multi-supplier) awards: Coming Later.</span></div>`; })()}</div>
+        <span class="muted" style="font-size:10.5px;width:100%">Recommending does NOT change any procurement financials — only the executed approved award does.</span></div>`; })()}</div>
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Close</button>${edit?`<button class="btn btn-primary" onclick="qeSave()">Save Evaluation</button>`:""}</div>`,{size:"wide"});
 }
 
@@ -8790,7 +8812,8 @@ function awBuildPdfModel(ev,r){
     const up=Number(q.unitPrice), tot=isFinite(up)&&it.qty!=null?up*Number(it.qty||0):null;
     return {technical:q.technical||"—",unit:q.unitPrice!=null&&q.unitPrice!==""?usd(q.unitPrice):"—",total:tot!=null?usd(tot):"—"}; })}));
   // executed standalone: canonical financials come from the PROCUREMENT record
-  const useRec=isExec&&r&&!procIsChild(r);
+  const splitLines=p.method==="split"?awSplitLines(p).map(l=>({desc:l.desc||"—",supplier:l.supplier||"—",amount:awPdfUSD(l.amountFinal),poRequired:poReqLabel({poRequired:l.poRequired})})):null;
+  const useRec=isExec&&r&&!procIsChild(r)&&p.method!=="split";
   const award={recommended:p.supplier||"—",approved:isExec?((r&&r.supplier)||p.supplier||"—"):(p.supplier||"—"),
     original:usd(useRec&&r.quotationAmount!=null?r.quotationAmount:p.amountOriginal),
     finalAward:usd(useRec&&r.committedAmount!=null?r.committedAmount:(useRec&&r.selectedAwardAmount!=null?r.selectedAwardAmount:p.amountFinal)),
@@ -8813,6 +8836,7 @@ function awBuildPdfModel(ev,r){
       const o0=Number(useRec&&r.quotationAmount!=null?r.quotationAmount:p.amountOriginal)||0;
       const f0=Number(useRec&&r.committedAmount!=null?r.committedAmount:p.amountFinal)||0;
       return (o0&&f0&&o0>f0)?awPdfUSD(o0-f0):null; })(),
+    splitLines:splitLines,
     generated:awPdfDate(Date.now(),true) };
 }
 function awDownloadAwardPDF(recId){
@@ -8911,9 +8935,15 @@ function awDownloadAwardPDF(recId){
   const para=doc.splitTextToSize?doc.splitTextToSize(m.award.justification,R-L):[m.award.justification];
   para.forEach(line=>{ ensure(13); doc.text(line,L,y); y+=10.5; });
   y+=4; ensure(42);
-  const dec=[["Approved Supplier",m.award.approved],["Original Quotation",m.award.original],["Final Award Amount",m.award.finalAward]];
-  if(m.savings) dec.push(["Savings",m.savings]);
-  dec.push(["PO Requirement",m.award.poRequired]);
+  if(m.splitLines){
+    doc.autoTable({startY:y,margin:{left:L,right:44},styles:{fontSize:8.4,cellPadding:3},theme:"grid",headStyles:{fillColor:BLUE},
+      head:[["Scope / Portion","Awarded Supplier","Award Amount","PO Requirement"]],
+      body:m.splitLines.map(l=>[l.desc,l.supplier,l.amount,l.poRequired])});
+    y=doc.lastAutoTable.finalY+12;
+  }
+  const dec=m.splitLines?[["Award Method","Split Award — "+m.splitLines.length+" line(s)"],["PO Requirement","Per awarded supplier (see above)"]]:[["Approved Supplier",m.award.approved],["Original Quotation",m.award.original],["Final Award Amount",m.award.finalAward]];
+  if(!m.splitLines&&m.savings) dec.push(["Savings",m.savings]);
+  if(!m.splitLines) dec.push(["PO Requirement",m.award.poRequired]);
   if(m.award.reasons&&m.award.reasons!=="—") dec.push(["Selection Reasons",m.award.reasons]);
   doc.autoTable({startY:y,margin:{left:L,right:W/2},styles:{fontSize:8.6,cellPadding:3},theme:"grid",
     body:dec, columnStyles:{0:{fontStyle:"bold",fillColor:[240,244,250],cellWidth:150},1:{fontStyle:"bold"}},
@@ -9024,7 +9054,32 @@ async function awCommit(evNext, okTitle, okSub){
   if(okTitle) toast(okTitle, okSub||"", "ok", 7000);
   return true;
 }
-function awRequirePlan(){ const p=_qe.awardPlan; if(!p||!p.bidderId||!(p.justification||"").trim()){ toast("Award Plan incomplete","Pick the recommended supplier and enter the justification.","err",8000); return false; } return true; }
+function awSplitLines(p){ return (p&&p.method==="split"&&Array.isArray(p.lines))?p.lines.filter(l=>l&&l.bidderId):[]; }
+function awValidateSplit(p,ev){
+  const lines=awSplitLines(p);
+  if(lines.length<1) return "Add at least one award line.";
+  const bidById=b=>(ev.bidders||[]).find(x=>x.bid===b);
+  for(const l of lines){
+    const b=bidById(l.bidderId);
+    if(!b) return "An award line references a removed bidder.";
+    if(b.qualified==="No") return "Bidder \""+(b.supplier||"?")+"\" is not qualified and cannot receive an award line.";
+    if(!(Number(l.amountFinal)>0)) return "Every award line needs a final amount greater than zero.";
+  }
+  const distinct=new Set(lines.map(l=>l.bidderId));
+  if(distinct.size<2) return "A split award requires at least two distinct suppliers — use the single-supplier method otherwise.";
+  return null;
+}
+function awRequirePlan(){ const p=_qe.awardPlan;
+  if(!p){ toast("Award Plan incomplete","Pick the recommended supplier and enter the justification.","err",8000); return false; }
+  if(!(p.justification||"").trim()){ toast("Award Plan incomplete","Enter the award justification.","err",8000); return false; }
+  if(p.method==="split"){
+    const err=awValidateSplit(p,_qe);
+    if(err){ toast("Split Award Plan incomplete",err,"err",9000); return false; }
+    return true;
+  }
+  if(!p.bidderId){ toast("Award Plan incomplete","Pick the recommended supplier and enter the justification.","err",8000); return false; }
+  return true;
+}
 function awEnsureApproval(ev){
   ev=ev||_qe;
   if(ev.awardApproval) return ev.awardApproval;
@@ -9085,12 +9140,100 @@ function awReject(){
     await awCommit(ev,"Returned for revision");
   },"Return for Revision",false,()=>{});
 }
+/* ===== v8.12.0 SPLIT AWARD EXECUTION =====
+   One approved plan → per-SUPPLIER execution records:
+   · Case A (source = Child): awarded siblings under the SAME Parent; the source
+     child becomes scope-only (financials zeroed — preconditions guarantee unpaid).
+   · Case B (source = Standalone): the standalone CONVERTS to the execution Parent
+     (the rules-permitted null→parent transition; its Budget becomes the Parent
+     budget) and awarded children are created beneath it. The evaluation stays on
+     the same document id.
+   Deterministic child ids {evalId}-AW{n}; ONE WriteBatch; retry-safe. */
+function awSupplierGroups(p){
+  const g={}; awSplitLines(p).forEach(l=>{ const k=l.bidderId; (g[k]=g[k]||{bidderId:k,supplier:l.supplier,amount:0,poRequired:l.poRequired||"",descs:[]});
+    g[k].amount+=Number(l.amountFinal)||0; if(l.desc) g[k].descs.push(l.desc);
+    if(l.poRequired==="required") g[k].poRequired="required"; });
+  return Object.values(g);
+}
+async function awApplySplit(r,ev,p){
+  const ap=ev.awardApproval;
+  // preconditions: unpaid, PO-free source
+  if(recLinkedPO(r)){ toast("Cannot execute split award","The source record already has a linked Purchase Order.","err",9000); return; }
+  if((Number(r.actualAmount)||0)>0||(Number(r.deposit)||0)>0||(Number(r.finalPay)||0)>0){
+    toast("Cannot execute split award","The source record already has actual/payment values. Execution is blocked to protect financial history.","err",10000); return; }
+  const groups=awSupplierGroups(p);
+  if(groups.length<2){ toast("Split plan invalid","","err"); return; }
+  if(fbConfigured() && !(typeof fbActive==="function" && fbActive() && _fb.app)){
+    toast("Firebase is not connected","Nothing was changed — the Approved Award was NOT applied.","err",11000); return; }
+  const isChildSrc=procIsChild(r);
+  const parentId=isChildSrc?r.parentDocId:r.id;
+  // counter read (single) for deterministic sequential numbering
+  let lastSeq=0;
+  const ctr=(DB.procurementChildCounters&&DB.procurementChildCounters[parentId])||null;
+  if(ctr) lastSeq=Number(ctr.lastSeq)||0;
+  else lastSeq=procChildrenOf(parentId).reduce((a,c)=>Math.max(a,Number(c.childSeq)||0),0);
+  const now=Date.now();
+  const kids=groups.map((g,ix)=>({
+    id:ev.id+"-AW"+(ix+1),
+    recordType:"child", parentDocId:parentId, childSeq:lastSeq+ix+1,
+    name:(g.descs.length?g.descs.join("; "):((r.name||"Award")+" — "+g.supplier)),
+    supplier:g.supplier, campus:r.campus||"", listId:r.listId||"", pr:r.pr||"",
+    quotationAmount:g.amount, committedAmount:g.amount, actualAmount:0,
+    quote:r.quote||"", deposit:"", depositInv:"", finalPay:"", finalInv:"",
+    items:[], status:"Supplier Selected", remarks:"Generated by approved split award "+ev.id,
+    files:[], comments:[], history:[{by:SESSION.name,at:now,action:"Created by approved split award execution — "+g.supplier+" — "+g.amount}],
+    poRequired:g.poRequired||"", awardSourceEvalId:ev.id,
+    createdByUid:SESSION.uid, createdById:SESSION.id, createdByName:SESSION.name,
+    assignedToUid:r.assignedToUid||null, assignedToId:r.assignedToId||null, assignedToName:r.assignedToName||"",
+    responsible:r.responsible||"", created:now, updated:now }));
+  const evN=JSON.parse(JSON.stringify(ev));
+  evN.awardApproval.state="executed";
+  evN.awardApproval.execution={state:"executed",executedAt:now,executedByUid:SESSION.uid,executedByName:SESSION.name,generatedRecordIds:kids.map(k=>k.id),parentId:parentId,mode:"split"};
+  evN.status="Supplier Selected";
+  evN.selection={method:"split",lines:JSON.parse(JSON.stringify(awSplitLines(p))),date:now,byUid:SESSION.uid,byId:SESSION.id,byName:SESSION.name,justification:p.justification||"",viaApprovedAward:true};
+  evN.updated=now;
+  const rN=JSON.parse(JSON.stringify(r));
+  if(isChildSrc){ rN.scopeOnly=true; rN.quotationAmount=0; rN.committedAmount=0; rN.supplier="Multiple — Split Award"; }
+  else { rN.recordType="parent"; rN.supplier="Multiple — Split Award";
+    rN.quotationAmount=0; rN.committedAmount=0; rN.selectedAwardAmount=0;   // aggregates come ONLY from the awarded children
+    rN.assignedToUids=rN.assignedToUids||[rN.assignedToUid].filter(Boolean);
+    rN.assignedUsers=rN.assignedUsers||((rN.assignedToUid)?[{uid:rN.assignedToUid,legacyId:rN.assignedToId||null,name:rN.assignedToName||""}]:[]);
+  }
+  rN.history=rN.history||[];
+  rN.history.push({by:SESSION.name,at:now,action:"Split award executed: "+groups.map(g=>g.supplier+" ("+g.amount+")").join(", ")+" — "+kids.length+" execution record(s) generated"});
+  rN.updated=now;
+  const ctrN={parentDocId:parentId,lastSeq:lastSeq+kids.length,lastChildDocId:kids[kids.length-1].id,awardIds:kids.map(k=>k.id),updated:now};   // rev 7b execution manifest
+  if(typeof fbActive==="function" && fbActive() && _fb.app){
+    try{
+      const fs=_fb.app.firestore(); const batch=fs.batch();
+      const strip=x=>(typeof fbStripFiles==="function")?fbStripFiles(JSON.parse(JSON.stringify(x))):x;
+      batch.set(fs.collection("quoteEvals").doc(String(evN.id)), strip(evN));
+      batch.set(fs.collection("procurement").doc(String(rN.id)), strip(rN));
+      kids.forEach(k=>batch.set(fs.collection("procurement").doc(k.id), strip(k)));
+      batch.set(fs.collection("procurementChildCounters").doc(String(parentId)), ctrN);
+      await batch.commit();
+    }catch(e){
+      console.error("[award] split execution batch FAILED:", e&&e.code, e&&e.message);
+      toast("Split award was NOT executed","No data was changed — the evaluation remains Approved — Awaiting Execution. Please try again.","err",11000);
+      qeRender(); return;
+    }
+  }
+  const qi=DB.quoteEvals.findIndex(e=>e.id===evN.id); if(qi>=0) DB.quoteEvals[qi]=JSON.parse(JSON.stringify(evN)); else DB.quoteEvals.push(JSON.parse(JSON.stringify(evN)));
+  const ri=DB.procurement.findIndex(x=>x.id===rN.id); if(ri>=0) DB.procurement[ri]=JSON.parse(JSON.stringify(rN));
+  kids.forEach(k=>{ const i2=DB.procurement.findIndex(x=>x.id===k.id); if(i2>=0) DB.procurement[i2]=JSON.parse(JSON.stringify(k)); else DB.procurement.push(JSON.parse(JSON.stringify(k))); });
+  DB.procurementChildCounters=DB.procurementChildCounters||{}; DB.procurementChildCounters[parentId]=ctrN;
+  saveDB(); _qe=JSON.parse(JSON.stringify(evN));
+  toast("Split award executed",kids.length+" execution record(s) created under "+(isChildSrc?"the existing Parent":"the converted Parent"),"ok",9000);
+  qeRender(); buildNav(); if(typeof renderNotifBell==="function") renderNotifBell();
+  if(typeof CURRENT!=="undefined" && CURRENT==="approvals" && typeof renderApprovals==="function") renderApprovals();
+}
 async function awApply(){ // Apply Approved Award — ONE atomic WriteBatch across BOTH authoritative documents
   const r=DB.procurement.find(x=>x.id===_qeRecId); const ev=_qe; const ap=awApprovalOf(ev);
   if(isEntrySession()||isViewer()){ toast("Not permitted","","err"); return; }
   if(!r){ toast("Source procurement record not found","","err"); return; }
   if(!ap||ap.state!=="approved_final"){ if(ap&&ap.state==="executed"){ toast("Already executed","Opening the executed result.","err",7000); qeRender(); } else toast("Not awaiting execution","","err"); return; }
   const p=ev.awardPlan||{};
+  if(p.method==="split"){ await awApplySplit(r,ev,p); return; }
   if(!p.bidderId||!(p.justification||"").trim()){ toast("Approved Award Plan incomplete","","err"); return; }
   const b=(ev.bidders||[]).find(x=>x.bid===p.bidderId)||{};
   const orig=Number(p.amountOriginal)||Number(b.amountOriginal)||0, award=Number(p.amountFinal)||Number(b.amountFinal)||orig;
