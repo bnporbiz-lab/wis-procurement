@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.12.3";
+const APP_VERSION = "v8.12.4";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -2914,6 +2914,11 @@ const PROC_TABS = [
   {id:"delivery",   label:"Delivery"},
   {id:"completed",  label:"Completed"}
 ];
+/* v8.12.4: the stage a record occupies once an award is approved/executed but no PO
+   has been issued. MUST be a member of PROC_STAGE_DEFS — "Supplier Selected" is a
+   Quote Evaluation status, not a Procurement stage, and storing it here made
+   procStage() fall back to "Requesting Quotation". */
+const AW_POST_AWARD_STAGE="Approved";
 function procStage(r){ const s=r.status||""; return PROC_LEGACY_STAGE[s] || (PROC_STAGE_DEFS.some(d=>d.id===s)?s:"Requesting Quotation"); }
 function procStageDef(stage){ return PROC_STAGE_DEFS.find(d=>d.id===stage) || PROC_STAGE_DEFS[0]; }
 function procStageColor(r){ return isOverdue(r) ? "#dc2626" : procStageDef(procStage(r)).color; }
@@ -3581,8 +3586,12 @@ function procParentPanel(r){
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:8px;margin-bottom:8px">
       ${tile("Estimated Budget",usd(s.est))}${tile("Total Quoted",usd(s.quoted))}${tile("Committed / PO",usd(s.committed))}
       ${tile("Actual Expense",usd(s.actual),s.actual>s.est&&s.est>0?"#dc2626":"")}${tile("Paid",usd(s.paid))}${tile("Outstanding",usd(s.outstanding))}
-      ${tile("Variance",(s.variance>=0?"+":"")+usd(Math.abs(s.variance)).replace("$",s.variance<0?"-$":"$"),s.variance>0?"#dc2626":(s.variance<0?"#047857":""))}
-      ${tile("Variance %",s.pct==null?"—":((s.pct>=0?"+":"")+s.pct.toFixed(2)+"%"),s.pct>0?"#dc2626":(s.pct<0?"#047857":""))}
+      ${s.postAward
+        ? tile("Award Savings",(s.savings>=0?"+":"")+usd(Math.abs(s.savings)).replace("$",s.savings<0?"-$":"$"),s.savings<0?"#dc2626":(s.savings>0?"#047857":""))
+        : tile("Variance",(s.variance>=0?"+":"")+usd(Math.abs(s.variance)).replace("$",s.variance<0?"-$":"$"),s.variance>0?"#dc2626":(s.variance<0?"#047857":""))}
+      ${s.postAward
+        ? tile("Award Savings %",s.savingsPct==null?"—":((s.savingsPct>=0?"+":"")+s.savingsPct.toFixed(2)+"%"),s.savingsPct<0?"#dc2626":(s.savingsPct>0?"#047857":""))
+        : tile("Variance %",s.pct==null?"—":((s.pct>=0?"+":"")+s.pct.toFixed(2)+"%"),s.pct>0?"#dc2626":(s.pct<0?"#047857":""))}
       ${tile("Children",s.count)}${tile("Suppliers",s.suppliers)}
     </div></div>
   <div class="pcc-sec"><h4>Child Procurements (${s.count})</h4>
@@ -3651,10 +3660,8 @@ function openProcDrawer(id){
      ${sec("Supplier Evaluation", row("Supplier",esc(r.supplier))+row("Category",esc(r.category)))}
      ${sec("Approval", row("Current Stage",esc(r.status||procStage(r)))+row("Confirmed Date",fmtDateUS(r.confirm)))}
      ${sec("Purchase Order", row("PO Requirement",poReqLabel(r))+row("PO Number",esc(recPoNo(r))))}
-     ${procIsParent(r)?sec("Quote Evaluation (Children)",(function(){ const kids=(DB.procurement||[]).filter(x=>procIsChild(x)&&x.parentDocId===r.id);
-        const selN=kids.filter(k=>{const e=qeFor(k.id);return e&&e.selection;}).length;
-        const evN=kids.filter(k=>{const e=qeFor(k.id);return e&&!e.selection;}).length;
-        return `<p style="font-size:12.5px;margin:0">${kids.length} Children · ${selN} Supplier Selected · ${evN} Under Evaluation</p>`; })())
+     ${procIsParent(r)?sec("Quote Evaluation (Children)",(function(){ const c=procChildStageCounts(r.id);
+        return `<p style="font-size:12.5px;margin:0">${c.total} Children · ${c.awarded} Approved · ${c.evaluating} Under Evaluation</p>`; })())
       :sec("Quote Evaluation",(function(){ const ev=qeFor(r.id);
          if(ev&&awPdfAvailable(ev)){ /* completed evaluation linked to this record */ }
         if(!ev && r.evalRequired==="not_required") return `<p style="font-size:12.5px;margin:0"><b>Quote Evaluation: Not Required</b></p>`;
@@ -3667,7 +3674,7 @@ function openProcDrawer(id){
          +row("Selected Supplier",ev&&ev.selection?esc(ev.selection.supplier):"—")
          +row("Selected / Award Amount",ev&&ev.selection?("$"+(Number(ev.selection.amountFinal)||0).toLocaleString("en-US",{minimumFractionDigits:2})):"—")
          +`<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" onclick="closeProcDrawer();openQuoteEval('${r.id}')">Open Quote Evaluation</button>${(ev&&awPdfAvailable(ev))?` <button class="btn btn-ghost btn-sm ap-review" onclick="awDownloadAwardPDF('${r.id}')">Download Award PDF</button>`:""}</div>`; })())}
-     ${sec("Payment", row("Deposit",r.deposit?usd(r.deposit):"")+row("Deposit Invoice #",esc(r.depositInv))+row("Final Payment",r.finalPay?usd(r.finalPay):"")+row("Final Invoice #",esc(r.finalInv))+row("Total Paid",usd(paid))+row("Outstanding",usd(procIsChild(r)?Math.max(0,(Number(r.actualAmount)||0)-paid):Math.max(0,(Number(r.budget)||0)-paid))))}
+     ${sec("Payment", row("Deposit",r.deposit?usd(r.deposit):"")+row("Deposit Invoice #",esc(r.depositInv))+row("Final Payment",r.finalPay?usd(r.finalPay):"")+row("Final Invoice #",esc(r.finalInv))+row("Total Paid",usd(paid))+row("Outstanding",usd(procOutstanding(r))))}
      ${sec("Delivery &amp; Receiving", row("Stage",esc(r.status||procStage(r)))+row("Confirmed / Received",fmtDateUS(r.confirm)))}
      ${procUnitOf(r)?sec("Unit Service History", procUnitHistoryHTML(procUnitOf(r), r.id, "closeProcDrawer();")):''}
      ${sec("Line Items", (r.items&&r.items.length)?`<table class="pcc-mini"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>${r.items.map(it=>`<tr><td>${esc(it.desc)}</td><td class="num">${it.qty}</td><td class="num">${usd(it.price)}</td><td class="num">${usd((it.qty||0)*(it.price||0))}</td></tr>`).join("")}</tbody></table>`:'<p class="muted" style="font-size:12.5px">No line items.</p>')}
@@ -5655,12 +5662,40 @@ function childRef(r){ const p=DB.procurement.find(x=>x.id===r.parentDocId); cons
 /* v8.12.0: scope-only children carry the original evaluated SCOPE after a split
    award but hold NO financial values — every rollup excludes them by identity. */
 function procFinancialKids(parentDocId){ return procChildrenOf(parentDocId).filter(c=>!c.scopeOnly); }
+/* v8.12.4: single authoritative Outstanding for every surface. A Parent rolls up from
+   its financial children; a Child (and a plain standalone) uses its own actual minus
+   its own payments. Budget is NEVER used as an outstanding basis: Budget − Paid is a
+   commitment-remaining figure, not an amount owed. */
+/* v8.12.4: Parent child-summary counts. Derived from the canonical procurement stage
+   of the actual Child records — the previous implementation counted only children that
+   owned a Quote Evaluation document, so generated split-award execution Children (which
+   own none) reported 0. scopeOnly evaluation-source records are excluded. */
+function procChildStageCounts(parentDocId){
+  const kids=procFinancialKids(parentDocId);
+  const stageOf=k=>(typeof procStage==="function")?procStage(k):(k&&k.status||"");
+  return { total:kids.length,
+           awarded:kids.filter(k=>stageOf(k)===AW_POST_AWARD_STAGE).length,
+           evaluating:kids.filter(k=>stageOf(k)==="Under Evaluation").length };
+}
+function procOutstanding(r){
+  if(!r) return 0;
+  const paid=(Number(r.deposit)||0)+(Number(r.finalPay)||0);
+  if(typeof procIsParent==="function" && procIsParent(r)){ const s=parentSummary(r); return Math.max(0,s.actual-s.paid); }
+  if(typeof procIsChild==="function" && procIsChild(r)) return Math.max(0,(Number(r.actualAmount)||0)-paid);
+  /* standalone semantics are UNCHANGED (v8.12.4 scope is Parent only): a standalone
+     record has no child rollup, and its Outstanding remains Budget − Paid. */
+  return Math.max(0,(Number(r.budget)||0)-paid);
+}
 function parentSummary(p){
   const kids=procFinancialKids(p.id);
   const n=f=>kids.reduce((a,c)=>a+(Number(c[f])||0),0);
   const est=Number(p.budget)||0, quoted=n("quotationAmount"), committed=n("committedAmount"), actual=n("actualAmount");
   const paid=kids.reduce((a,c)=>a+((Number(c.deposit)||0)+(Number(c.finalPay)||0)),0);
   const variance=actual-est, pct=est>0?(variance/est*100):null;
+  /* v8.12.4: procurement AWARD variance — what the approved award saved against the
+     estimate. Distinct from the Actual-vs-Budget cost variance above. */
+  const savings=est-committed, savingsPct=est>0?(savings/est*100):null;
+  const postAward=(committed>0 && actual===0);
   const suppliers=[...new Set(kids.map(c=>c.supplier).filter(Boolean))].length;
   let health="⚪ No Actual Expense", hcolor="#6b7280";
   if(actual>0){ if(est<=0){ health="🔴 Over Budget"; hcolor="#dc2626"; }
@@ -5668,7 +5703,8 @@ function parentSummary(p){
     else if(actual===est){ health="🔵 On Budget"; hcolor="#2563eb"; }
     else if(actual>=est*0.95){ health="🟠 Near Budget"; hcolor="#d97706"; }
     else { health="🟢 Under Budget"; hcolor="#047857"; } }
-  return {kids, count:kids.length, suppliers, est, quoted, committed, actual, paid, outstanding:actual-paid, variance, pct, health, hcolor};
+  return {kids, count:kids.length, suppliers, est, quoted, committed, actual, paid,
+          outstanding:Math.max(0,actual-paid), savings, savingsPct, postAward, variance, pct, health, hcolor};
 }
 const ENTRY_PROTECTED=["id","name","campus","category","listId","pr","prFileUrl","po","responsible","createdBy","createdByUid","createdById","createdByName","created","assignedToUid","assignedToId","assignedToName","recordType","parentDocId","childSeq","assignedToUids","assignedUsers"];
 function poStepDefaults(){
@@ -9242,7 +9278,7 @@ async function awApplySplit(r,ev,p){
     supplier:g.supplier, campus:r.campus||"", listId:r.listId||"", pr:r.pr||"",
     quotationAmount:g.amount, committedAmount:g.amount, actualAmount:0,
     quote:r.quote||"", deposit:"", depositInv:"", finalPay:"", finalInv:"",
-    items:[], status:"Supplier Selected", remarks:"Generated by approved split award "+ev.id,
+    items:[], status:AW_POST_AWARD_STAGE, remarks:"Generated by approved split award "+ev.id,
     files:[], comments:[], history:[{by:SESSION.name,at:now,action:"Created by approved split award execution — "+g.supplier+" — "+g.amount}],
     poRequired:g.poRequired||"", awardSourceEvalId:ev.id,
     createdByUid:SESSION.uid, createdById:SESSION.id, createdByName:SESSION.name,
@@ -9257,6 +9293,7 @@ async function awApplySplit(r,ev,p){
   const rN=JSON.parse(JSON.stringify(r));
   if(isChildSrc){ rN.scopeOnly=true; rN.quotationAmount=0; rN.committedAmount=0; rN.supplier="Multiple — Split Award"; }
   else { rN.recordType="parent"; rN.supplier="Multiple — Split Award";
+    rN.status=AW_POST_AWARD_STAGE;                                          // v8.12.4: canonical post-award stage, same batch
     rN.quotationAmount=0; rN.committedAmount=0; rN.selectedAwardAmount=0;   // aggregates come ONLY from the awarded children
     rN.assignedToUids=rN.assignedToUids||[rN.assignedToUid].filter(Boolean);
     rN.assignedUsers=rN.assignedUsers||((rN.assignedToUid)?[{uid:rN.assignedToUid,legacyId:rN.assignedToId||null,name:rN.assignedToName||""}]:[]);
