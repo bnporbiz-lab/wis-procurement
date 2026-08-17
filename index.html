@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.12.7";
+const APP_VERSION = "v8.12.8";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -3038,7 +3038,17 @@ function procRows(opts){
   if(_procF.due) base=base.filter(r=>r.due===_procF.due);
   if(_procQuick) base=base.filter(r=>procQuickMatch(r,_procQuick));
   if(_procF.q){ const q=_procF.q.toLowerCase();
-    base=base.filter(r=>[r.name,r.pr,r.quote,r.po,r.supplier,r.remarks,r.category,r.depositInv,r.finalInv,r.responsible,procUnitOf(r),procDisplayId(r)].join(" ").toLowerCase().includes(q)); }
+    /* v8.12.8: procDisplayId(r) returns r.pr, which for a Child is the PARENT's PR —
+       so the generated reference the UI actually shows for a Child ("…-C02") was never
+       in the haystack and an exact child-reference search found nothing. childRef() is
+       the SAME canonical helper the drawer and child rows display, reused here rather
+       than re-deriving the format, so displayed reference == searchable reference.
+       Derived in memory only: no new Firestore field, no migration, no extra write.
+       Children are only present in `base` when Include Child Records is ON, so this
+       adds a way to MATCH a row and never reveals a hidden one. It runs after every
+       structural filter, so Campus/Category/Supplier/Responsible/Stage/Structure/Date
+       all remain authoritative. */
+    base=base.filter(r=>[r.name,r.pr,r.quote,r.po,r.supplier,r.remarks,r.category,r.depositInv,r.finalInv,r.responsible,procUnitOf(r),procDisplayId(r),procIsChild(r)?childRef(r):""].join(" ").toLowerCase().includes(q)); }
   if(!opts.ignoreTab && _procTab!=="all") base=base.filter(r=>procTabOf(r)===_procTab);
   const sortMode=_procF.sort||"new";
   if(sortMode==="new") base.sort((a,b)=>(Number(b.created)||0)-(Number(a.created)||0));
