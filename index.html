@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.12.5";
+const APP_VERSION = "v8.12.6";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -6277,25 +6277,29 @@ function poDoSubmit(id){
   const sel=document.getElementById("po_appr_select"); const approverId=sel?sel.value:null;
   const approver=DB.users.find(u=>u.id===approverId); if(!approver){ toast("Pick an approver","","err"); return; }
   const remember=document.getElementById("po_appr_default"); if(remember&&remember.checked){ DB.settings.defaultApproverId=approverId; }
+  if(poDecisionBusy(id)) return;                       // in-flight lock
   const meU=DB.users.find(u=>SESSION&&u.id===SESSION.id);
+  /* v8.12.6: build the PROPOSED state on a clone; the authoritative p is untouched
+     until poCommit() confirms the server write. */
+  const next=poCloneForDecision(p);
   // 2-step flow: Prepared by the submitter -> straight to the approver
-  p.approval={
+  next.approval={
     state:"pending", stage:"approve",
     approverId:approver.id, approverName:approver.name,
     submittedById:(SESSION&&SESSION.id)||"", submittedByName:(SESSION&&SESSION.name)||"System",
     submittedAt:Date.now(), decidedAt:null, note:""
   };
   // Step 1 (Prepared) is the submitter; use their own name + position
-  const w=poWorkflow(p);
+  const w=next.workflow=next.workflow||{};
   w.requested={name:(SESSION&&SESSION.name)||DB.settings.prepName||PO_COMPANY.preparedBy, title:(meU&&meU.title)||DB.settings.prepTitle||PO_COMPANY.preparedTitle, at:Date.now(), by:(SESSION&&SESSION.name)||"System"};
   w.verified=null;
   w.approved=null; // clear any prior approval stamp (e.g. on resubmit)
-  if(DB.settings.prepSig) applySavedSig_quiet(id,"prepared");
-  p.status="Pending Approval"; p.issuedAt=Date.now();
-  saveDB(); closeModal(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
-  try{ paintPOTabs(); paintPO(); }catch(e){}
-  toast("Submitted for approval","Sent to "+approver.name+" — they'll see it in the app","ok",5000);
-  if(DB.settings.tgNotifyApprover) poNotifyApproverTelegram(p, approver, "approval");
+  next.status="Pending Approval"; next.issuedAt=Date.now();
+  closeModal();
+  poCommit(next,"Submitted for approval","Sent to "+approver.name+" — they'll see it in the app",(pp)=>{
+    if(DB.settings.prepSig) applySavedSig_quiet(id,"prepared");
+    if(DB.settings.tgNotifyApprover) poNotifyApproverTelegram(pp, approver, "approval");
+  });
 }
 
 // --- verify (step 2 of 3) ---
@@ -6303,19 +6307,20 @@ function poVerifyRouted(id){
   const p=DB.po.find(x=>x.id===id); if(!p) return;
   const a=poApproval(p);
   if(!poCanDecide(p) || (a.stage||"approve")!=="verify"){ toast("Not permitted","Only the assigned verifier can verify this PO","err"); return; }
+  if(poEntryBlocked()) return;
   confirmModal("Verify this Purchase Order?",`${esc(p.poNo)} (${money(p.amount)}) will be marked <b>Verified</b> and sent to <b>${esc(a.approverName||"the approver")}</b> for final approval.`,()=>{
-    const meU=DB.users.find(u=>SESSION&&u.id===SESSION.id);
-    a.verifiedAt=Date.now(); a.verifiedById=(SESSION&&SESSION.id)||""; a.verifierName=(SESSION&&SESSION.name)||a.verifierName; a.stage="approve";
-    const w=poWorkflow(p);
-    w.verified={name:(SESSION&&SESSION.name)||a.verifierName||"", title:(meU&&meU.title)||"", at:Date.now(), by:(SESSION&&SESSION.name)||"System"};
-    p.status="Pending Approval";
-    saveDB();
+    if(poDecisionBusy(id)) return;                     // in-flight lock
     if(isViewerSession()){ toast("Verify is no longer available","This account approves or rejects purchase orders. Ask an administrator to route this legacy PO.","err",8000); return; }
-    if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
-    try{ paintPOTabs(); paintPO(); }catch(e){}
-    toast("Purchase order verified","Now waiting for final approval by "+(a.approverName||"the approver"),"ok",5000);
-    const approver=DB.users.find(u=>u.id===a.approverId);
-    if(DB.settings.tgNotifyApprover && approver) poNotifyApproverTelegram(p, approver, "approval");
+    const meU=DB.users.find(u=>SESSION&&u.id===SESSION.id);
+    const next=poCloneForDecision(p); const na=next.approval;
+    na.verifiedAt=Date.now(); na.verifiedById=(SESSION&&SESSION.id)||""; na.verifierName=(SESSION&&SESSION.name)||na.verifierName; na.stage="approve";
+    const w=next.workflow=next.workflow||{};
+    w.verified={name:(SESSION&&SESSION.name)||na.verifierName||"", title:(meU&&meU.title)||"", at:Date.now(), by:(SESSION&&SESSION.name)||"System"};
+    next.status="Pending Approval";
+    poCommit(next,"Purchase order verified","Now waiting for final approval by "+(na.approverName||"the approver"),(pp)=>{
+      const approver=DB.users.find(u=>u.id===na.approverId);
+      if(DB.settings.tgNotifyApprover && approver) poNotifyApproverTelegram(pp, approver, "approval");
+    });
   },"Verify",false);
 }
 
@@ -6343,39 +6348,101 @@ function entryCanEditRecord(prev){
     return !!(SESSION && SESSION.uid && parentTeamUids(prev).includes(SESSION.uid));
   return !!(prev.assignedToUid && SESSION && SESSION.uid && prev.assignedToUid===SESSION.uid);
 }
-async function poViewerPushDecision(id){
+/* ===== v8.12.6 PO commit integrity =====
+   The PO decision path previously mutated the authoritative PO in place, rendered
+   success, and fired an UNAWAITED write that only ran for Viewer sessions (every
+   other role fell through to saveDB() -> fbQueueSync(), a 400ms debounced
+   setTimeout whose result nobody could observe). A denied or offline write
+   therefore left server=pending while local=approved.
+
+   poPushDecision() is now the single authoritative persistence primitive for every
+   authorized PO actor, with the same tri-state contract as the proven Award helper
+   awPushDecision():
+       true      — committed on the server (or genuine local-only deployment)
+       "offline" — Firebase CONFIGURED but not ready: fail closed, change nothing
+       false     — rejected or threw: fail closed, change nothing
+   It never toasts success and never swallows a failure into a truthy result. */
+const _poInFlight=Object.create(null);            // in-flight lock per PO id
+function poDecisionBusy(id){ return !!_poInFlight[String(id)]; }
+async function poPushDecision(next){
+  if(!fbConfigured()) return true;                                                  // genuine local-only deployment
+  if(!(typeof fbActive==="function" && fbActive() && (_fb.db||_fb.app))) return "offline";  // configured but NOT ready
   try{
-    if(!(typeof fbActive==="function" && fbActive() && _fb.db)) return false;
-    const p=DB.po.find(x=>x.id===id); if(!p) return false;
     const cp=o=>o==null?o:JSON.parse(JSON.stringify(o));
-    const payload={ status:p.status, approval:cp(p.approval)||{}, workflow:cp(p.workflow)||{}, updated:Date.now() };
-    if(p.approvedAt!=null) payload.approvedAt=p.approvedAt;
-    // signatures intentionally NOT sent: viewer decisions never write signature data
-    // (PDFs render the approver signature from Settings; B2 rules exclude the key).
-    await _fb.db.collection("po").doc(String(p.id)).update(payload);
-    try{ if(_fb.shadow && _fb.shadow.po) _fb.shadow.po[String(p.id)]=JSON.stringify(fbStripFiles(p)); }catch(e){}
+    const payload={ status:next.status, approval:cp(next.approval)||{}, workflow:cp(next.workflow)||{}, updated:Date.now() };
+    if(next.approvedAt!=null) payload.approvedAt=next.approvedAt;
+    if(next.issuedAt!=null) payload.issuedAt=next.issuedAt;
+    /* signatures intentionally NOT sent: decisions never write signature data
+       (PDFs render signatures from Settings; rules exclude the key). */
+    const db=_fb.db||(_fb.app&&_fb.app.firestore());
+    await db.collection("po").doc(String(next.id)).update(payload);
     return true;
   }catch(e){
-    console.error("[B1] decision write failed:", e && (e.code||e.message||e));
-    toast("Decision could not reach the server", String(e&&(e.code||e.message)||"unknown error")+" — it is saved on this device; reopen the PO to retry.","err",9000);
+    console.error("[v8.12.6] PO decision write REJECTED/FAILED:", e&&(e.code||e.message||e));
     return false;
   }
 }
+/* poCommit — validate/clone happens in the caller; this performs the awaited write
+   and ONLY on confirmed success copies the proposed state onto the authoritative
+   PO object, persists locally, and re-renders (including the Approval Center).
+   Local state, the Approval Center and the success toast are all downstream of the
+   commit — never ahead of it. */
+async function poCommit(next, okTitle, okSub, afterOk){
+  const id=String(next.id);
+  if(_poInFlight[id]) return false;                 // in-flight lock: ignore the 2nd click
+  _poInFlight[id]=true;
+  try{
+    const res=await poPushDecision(next);
+    if(res!==true){
+      if(res==="offline") toast("Firebase is not connected","Nothing was changed. Please reconnect and try again — this purchase order remains on its current step.","err",11000);
+      else toast("Decision NOT saved","The server rejected the write or it failed. The purchase order was NOT advanced — it remains on its current step. Please try again.","err",11000);
+      try{ if(typeof viewPO==="function" && document.getElementById("po_view_wrap")) viewPO(id); }catch(e){}
+      return false;                                  // authoritative local state untouched
+    }
+    const p=DB.po.find(x=>x.id===next.id);
+    if(p){ p.status=next.status; p.approval=JSON.parse(JSON.stringify(next.approval||{})); p.workflow=JSON.parse(JSON.stringify(next.workflow||{}));
+           if(next.approvedAt!=null) p.approvedAt=next.approvedAt; else delete p.approvedAt;
+           if(next.issuedAt!=null) p.issuedAt=next.issuedAt; }
+    saveDB();                                        // local durability AFTER the authoritative commit
+    try{ if(_fb.shadow && _fb.shadow.po && p) _fb.shadow.po[String(p.id)]=JSON.stringify(fbStripFiles(p)); }catch(e){}
+    if(typeof viewPO==="function") viewPO(id);
+    if(typeof buildNav==="function") buildNav();
+    if(typeof renderNotifBell==="function") renderNotifBell();
+    try{ paintPOTabs(); paintPO(); }catch(e){}
+    if(typeof CURRENT!=="undefined" && CURRENT==="approvals" && typeof renderApprovals==="function") renderApprovals();
+    if(okTitle) toast(okTitle, okSub||"", "ok", 5000);
+    if(typeof afterOk==="function"){ try{ afterOk(p||next); }catch(e){} }
+    return true;
+  } finally { delete _poInFlight[id]; }
+}
+/* Entry never holds PO approval authority. poCanDecide() is step-scoped, but an
+   Entry account selected as approver would otherwise satisfy it, so the role is
+   blocked explicitly rather than relying on selection discipline. */
+function poEntryBlocked(){
+  if(typeof isEntrySession==="function" && isEntrySession()){
+    toast("Not permitted","Purchase order approval decisions are not available to Entry accounts.","err",8000);
+    return true;
+  }
+  return false;
+}
+function poCloneForDecision(p){ return JSON.parse(JSON.stringify({id:p.id,status:p.status,approval:p.approval||{},workflow:p.workflow||{},approvedAt:p.approvedAt,issuedAt:p.issuedAt})); }
 function poApproveRouted(id){
   const p=DB.po.find(x=>x.id===id); if(!p) return;
   if(!poCanDecide(p)){ toast("Not permitted","Only the assigned approver can approve this PO","err"); return; }
   const a=p.approval;
+  if(poEntryBlocked()) return;
   confirmModal("Approve this Purchase Order?",`${esc(p.poNo)} (${money(p.amount)}) will be marked <b>Approved</b>${DB.settings.apprSig?", and the approver's e-signature applied":""}.`,()=>{
-    a.state="approved"; a.decidedAt=Date.now(); a.decidedById=(SESSION&&SESSION.id)||""; a.approverName=(SESSION&&SESSION.name)||a.approverName;
+    if(poDecisionBusy(id)) return;                     // in-flight lock
     const meU=DB.users.find(u=>SESSION&&u.id===SESSION.id);
-    const w=poWorkflow(p);
+    const next=poCloneForDecision(p); const na=next.approval;
+    na.state="approved"; na.decidedAt=Date.now(); na.decidedById=(SESSION&&SESSION.id)||""; na.approverName=(SESSION&&SESSION.name)||na.approverName;
+    const w=next.workflow=next.workflow||{};
     w.approved={name:(SESSION&&SESSION.name)||DB.settings.apprName||PO_COMPANY.approvedBy, title:(meU&&meU.title)||DB.settings.apprTitle||PO_COMPANY.approvedTitle, at:Date.now(), by:(SESSION&&SESSION.name)||"System"};
-    if(DB.settings.apprSig) applySavedSig_quiet(id,"approved");
-    p.status="Approved"; p.approvedAt=Date.now();
-    saveDB(); if(isViewerSession()) poViewerPushDecision(id);
-    if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
-    toast("Purchase order approved","","ok");
-    if(DB.settings.tgNotifySubmitter!==false) poNotifySubmitterTelegram(p);
+    next.status="Approved"; next.approvedAt=Date.now();
+    poCommit(next,"Purchase order approved","",(pp)=>{
+      if(DB.settings.apprSig) applySavedSig_quiet(id,"approved");
+      if(DB.settings.tgNotifySubmitter!==false) poNotifySubmitterTelegram(pp);
+    });
   },"Approve",false);
 }
 
@@ -6391,16 +6458,19 @@ function poRejectRouted(id){
 function poDoReject(id){
   const p=DB.po.find(x=>x.id===id); if(!p) return;
   const a=p.approval; if(!a) return;
+  /* v8.12.6: authorization re-checked at commit time, not only when the modal opened. */
+  if(!poCanDecide(p)){ toast("Not permitted","Only the assigned approver can reject this PO","err"); return; }
+  if(poEntryBlocked()) return;
+  if(poDecisionBusy(id)) return;                       // in-flight lock
   const note=(document.getElementById("po_reject_note")||{}).value||"";
-  a.state="rejected"; a.decidedAt=Date.now(); a.decidedById=(SESSION&&SESSION.id)||""; a.approverName=(SESSION&&SESSION.name)||a.approverName; a.note=note.trim();
-  const w=poWorkflow(p); w.approved=null; w.verified=null;
-  p.status="Draft";
-  saveDB(); if(isViewerSession()) poViewerPushDecision(id);
-  closeModal(); if(typeof viewPO==="function") viewPO(id); buildNav(); renderNotifBell();
-  try{ paintPOTabs(); paintPO(); }catch(e){}
-  try{ paintPOTabs(); paintPO(); }catch(e){}
-  toast("Purchase order rejected","Returned to "+(a.submittedByName||"preparer"),"ok");
-  if(DB.settings.tgNotifySubmitter!==false) poNotifySubmitterTelegram(p);
+  const next=poCloneForDecision(p); const na=next.approval;
+  na.state="rejected"; na.decidedAt=Date.now(); na.decidedById=(SESSION&&SESSION.id)||""; na.approverName=(SESSION&&SESSION.name)||na.approverName; na.note=note.trim();
+  const w=next.workflow=next.workflow||{}; w.approved=null; w.verified=null;
+  next.status="Draft";
+  closeModal();
+  poCommit(next,"Purchase order rejected","Returned to "+(na.submittedByName||"preparer"),(pp)=>{
+    if(DB.settings.tgNotifySubmitter!==false) poNotifySubmitterTelegram(pp);
+  });
 }
 
 // --- Telegram notifications for the approval workflow ---
