@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.12.6";
+const APP_VERSION = "v8.12.7";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -3461,6 +3461,7 @@ function procChildRowsHtml(p,colspan){
       <span class="muted" style="font-size:12px;margin-left:8px">${esc(c.name)}</span>
       <span style="font-size:12px;margin-left:10px">Quoted ${usd(c.quotationAmount)} · Committed ${usd(c.committedAmount)} · <b>Actual ${usd(c.actualAmount)}</b></span>
       <span class="pcc-stage" style="margin-left:8px;color:${procStageColor(c)}"><i style="background:${procStageColor(c)}"></i>${esc(c.status||"")}</span>
+      ${c.scopeOnly===true?'<span class="chip-cat" style="margin-left:8px" title="Split-award evaluation source — retained for audit; excluded from procurement counts and financial rollups">Evaluation Scope</span>':""}
     </td></tr>`).join("");
 }
 /* ============================ TABLE ============================ */
@@ -3478,8 +3479,14 @@ function paintProcurement(){
   const cell=(c,r)=>{
     switch(c.k){
       case "pid": return `<b>${esc(procDisplayId(r))}</b>`;
-      case "name": { const kids=procIsParent(r)?procChildrenOf(r.id):null;
-        const badge=procIsParent(r)?` <span class="chip-cat" style="background:#4f46e518;color:#4338ca;font-weight:700">Parent · ${kids.length} ${kids.length===1?"Child":"Children"}</span>`:(procIsChild(r)?' <span class="chip-cat">Child</span>':"");
+      /* v8.12.7: the user-facing Parent count is PROCUREMENT children — the canonical
+         execution/financial set, i.e. procFinancialKids() (scopeOnly !== true). The raw
+         document count included the split-award evaluation-source child and disagreed
+         with the Parent Summary, which was already correct. One definition of
+         execution/financial child, reused rather than re-derived. Records with a
+         missing or false scopeOnly still count, so no migration is needed. */
+      case "name": { const kids=procIsParent(r)?procFinancialKids(r.id):null;
+        const badge=procIsParent(r)?` <span class="chip-cat" style="background:#4f46e518;color:#4338ca;font-weight:700">Parent · ${kids.length} ${kids.length===1?"Child":"Children"}</span>`:(procIsChild(r)?(r.scopeOnly===true?' <span class="chip-cat" title="Split-award evaluation source — retained for audit; excluded from procurement counts and financial rollups">Evaluation Scope</span>':' <span class="chip-cat">Child</span>'):"");
         const exp=procIsParent(r)?`<button class="act-btn" style="width:20px;height:20px;margin-right:2px" title="${_procExpanded[r.id]?'Collapse':'Expand'} children" onclick="event.stopPropagation();_procExpanded['${r.id}']=!_procExpanded['${r.id}'];paintProcurement()">${_procExpanded[r.id]?"▼":"▶"}</button>`:"";
         return `${exp}${(Date.now()-(Number(r.created)||0))<172800000?'<span class="pcc-new">NEW</span> ':""}<span class="pcc-name">${esc(r.name)}</span>${badge}${isOverdue(r)?' <span class="pcc-dot-od" title="Overdue"></span>':""}`; }
       case "campus": return r.campus?`<span class="pcc-soft">${esc(r.campus)}</span>`:'<span class="muted">—</span>';
