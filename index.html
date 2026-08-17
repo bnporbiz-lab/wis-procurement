@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.12.8";
+const APP_VERSION = "v8.12.9";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -2682,7 +2682,18 @@ function fmtDate(d){ if(!d)return "&mdash;"; const x=new Date(d); return isNaN(x
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 // Escape text, then turn any web link inside it into a clickable link (opens in a new tab)
 function linkifyEsc(s){ return esc(s).replace(/(https?:\/\/[^\s&<>"']+[^\s&<>"'.,)])/g,'<a href="$1" target="_blank" rel="noopener" style="color:var(--primary);word-break:break-all">$1</a>'); }
-function isOverdue(r){ if(!r.due||["Completed","Cancelled","Delivered"].includes(r.status))return false; return new Date(r.due) < new Date(new Date().toDateString()); }
+/* v8.12.9: overdue is decided on the CANONICAL stage, not the raw stored status.
+   The old raw list excluded "Delivered" — a legacy alias — but NOT its canonical
+   equivalent "Fully Received", so a fully-received record with a past due date was
+   still reported Overdue and painted red. procStage() maps legacy aliases
+   ("Delivered" -> "Fully Received", "Ordered" -> "PO Issued", ...) so projects and
+   maintenance records keep exactly their previous exclusions.
+   "Partially Received" remains OVERDUE-ELIGIBLE by design: the delivery is not
+   complete. A missing due date is never overdue. */
+const PROC_NOT_OVERDUE_STAGES=["Completed","Cancelled","Fully Received"];
+function isOverdue(r){ if(!r||!r.due) return false;
+  if(PROC_NOT_OVERDUE_STAGES.includes(procStage(r))) return false;
+  return new Date(r.due) < new Date(new Date().toDateString()); }
 /* v8.9 DOUBLE-COUNT PROTECTION: children are supplier-level components of a
    Parent — they never enter top-level statistics. Total Budget = standalone
    budget + parent estimated budget; children carry NO budget field at all. */
@@ -2721,18 +2732,38 @@ function computeStats(){
   const sum=arr=>arr.reduce((a,r)=>a+(Number(r.budget)||0),0);
   const byStatus={}; STATUSES.forEach(s=>byStatus[s]=0);
   recs.forEach(r=>{ const st=isOverdue(r)?"Overdue":r.status; byStatus[st]=(byStatus[st]||0)+1; });
-  const completedAmt=sum(recs.filter(r=>r.status==="Completed"));
-  const pendingAmt=sum(recs.filter(r=>["To Do","Pending"].includes(r.status)));
-  const inProgAmt=sum(recs.filter(r=>["In Progress","Ordered"].includes(r.status)));
+  /* v8.12.9: procurement records are classified by the CANONICAL stage via
+     procStage(); projects and maintenance keep their own legacy vocabulary, which is
+     the only vocabulary those two modules use. Buckets use REAL PROC_STAGE_DEFS
+     members only — no new stage is invented:
+       Pending      = Requesting Quotation | Quotation Received | Under Evaluation
+                      | Pending Approval          (pre-award)
+       In-Progress  = Approved | PO Issued | In Production | In Transit
+                      | Partially Received        (awarded, not yet fully received)
+       Ordered      = PO Issued                   (canonical alias of legacy "Ordered")
+       Delivered    = Fully Received
+       Completed    = Completed
+     Cancelled belongs to no bucket. As before, Ordered is a subset of In-Progress. */
+  const DASH_PENDING=["Requesting Quotation","Quotation Received","Under Evaluation","Pending Approval"];
+  const DASH_INPROG=["Approved","PO Issued","In Production","In Transit","Partially Received"];
+  const inBucket=(r,procStages,legacyStatuses)=>(r._set==="procurement")
+    ? procStages.includes(procStage(r))
+    : legacyStatuses.includes(r.status);
+  const isCompleted=r=>(r._set==="procurement") ? procStage(r)==="Completed" : r.status==="Completed";
+  const isDelivered=r=>(r._set==="procurement") ? procStage(r)==="Fully Received" : r.status==="Delivered";
+  const isOrdered=r=>(r._set==="procurement") ? procStage(r)==="PO Issued" : r.status==="Ordered";
+  const completedAmt=sum(recs.filter(isCompleted));
+  const pendingAmt=sum(recs.filter(r=>inBucket(r,DASH_PENDING,["To Do","Pending"])));
+  const inProgAmt=sum(recs.filter(r=>inBucket(r,DASH_INPROG,["In Progress","Ordered"])));
   const now=new Date(), monthVal=sum(recs.filter(r=>{ const d=new Date(r.created||r.due); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }));
   return {
     recs, totalBudget:sum(recs), completedAmt, pendingAmt, inProgAmt, monthVal,
     nProc:procTopLevel().length, nProj:DB.projects.length, nMaint:DB.maintenance.length, nSupp:DB.suppliers.length,
-    completed:recs.filter(r=>r.status==="Completed").length,
-    pending:recs.filter(r=>["To Do","Pending"].includes(r.status)).length,
+    completed:recs.filter(isCompleted).length,
+    pending:recs.filter(r=>inBucket(r,DASH_PENDING,["To Do","Pending"])).length,
     overdue:recs.filter(r=>isOverdue(r)).length,
-    delivered:recs.filter(r=>r.status==="Delivered").length,
-    ordered:recs.filter(r=>r.status==="Ordered").length,
+    delivered:recs.filter(isDelivered).length,
+    ordered:recs.filter(isOrdered).length,
     byStatus
   };
 }
@@ -3060,14 +3091,30 @@ function procRows(opts){
 }
 
 /* ---- KPIs ---- */
+/* v8.12.9: operational (user-facing) rows. scopeOnly:true records are split-award
+   evaluation SOURCES retained for audit — they stay visible with Include Child
+   Records, searchable by child reference, openable and evaluable, but they are not
+   operational work and must not inflate KPI or tab counts. Financial rollups already
+   excluded them via procFinancialKids(); this closes the same gap for counts.
+   The list itself is untouched, so nothing is hidden. */
+function procOperationalRows(opts){ return procRows(opts).filter(r=>r.scopeOnly!==true); }
 function procKPIs(){
-  const all=procRows({ignoreTab:true});
+  const all=procOperationalRows({ignoreTab:true});
   const active=all.filter(r=>!["Completed","Cancelled"].includes(procStage(r)));
   return {
     active: active.length,
     pending: all.filter(r=>procStage(r)==="Pending Approval").length,
-    poIssued: all.filter(r=>["PO Issued","In Production","In Transit","Partially Received","Fully Received"].includes(procStage(r))).length,
+    /* v8.12.9: classified by the SAME canonical helper as the drill-through target, so
+       the KPI number equals the row count the PO tab shows. The previous list also
+       carried In Transit / Partially Received / Fully Received, which PROC_STAGE_DEFS
+       maps to the DELIVERY tab — the KPI therefore over-counted its own destination
+       by exactly the delivery population. */
+    poIssued: all.filter(r=>procTabOf(r)==="po").length,
     overdue: all.filter(r=>isOverdue(r)).length,
+    /* v8.12.9: RENAMED in the UI to "Total Estimated Value" — the formula is
+       deliberately UNCHANGED (sum of active top-level `budget`). Legacy production
+       records may not carry complete committedAmount data, so no fallback and no
+       formula substitution is introduced here. */
     committed: active.reduce((s,r)=>s+(Number(r.budget)||0),0)
   };
 }
@@ -3356,7 +3403,7 @@ function renderProcurement(){
   const suppliers=[...new Set(DB.procurement.map(r=>r.supplier).filter(Boolean))].sort();
   const responsibles=[...new Set(DB.procurement.map(r=>r.responsible).filter(Boolean))].sort();
   const tabCounts={}; PROC_TABS.forEach(t=>tabCounts[t.id]=0);
-  procRows({ignoreTab:true}).forEach(r=>{ tabCounts.all++; tabCounts[procTabOf(r)]=(tabCounts[procTabOf(r)]||0)+1; });
+  procOperationalRows({ignoreTab:true}).forEach(r=>{ tabCounts.all++; tabCounts[procTabOf(r)]=(tabCounts[procTabOf(r)]||0)+1; });
   const kpi=(id,label,val,accent,active)=>`<button class="pcc-kpi${active?' on':''}" onclick="procKpiClick('${id}')">
       <div class="pcc-kpi-val" style="color:${accent}">${val}</div><div class="pcc-kpi-lbl">${label}</div></button>`;
   document.getElementById("content").innerHTML=`
@@ -3380,7 +3427,7 @@ function renderProcurement(){
       ${kpi("pending","Pending Approval",k.pending,"#d97706",_procF.stage==="Pending Approval")}
       ${kpi("po","Purchase Orders Issued",k.poIssued,"#7c3aed",_procTab==="po")}
       ${kpi("overdue","Overdue Records",k.overdue,"#dc2626",_procQuick==="overdue")}
-      ${kpi("value","Total Committed Value",usd(k.committed),"#059669",false)}
+      ${kpi("value","Total Estimated Value",usd(k.committed),"#059669",false)}
     </div>
 
     <div class="pcc-tabs">
