@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.12.4";
+const APP_VERSION = "v8.12.5";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -9291,7 +9291,17 @@ async function awApplySplit(r,ev,p){
   evN.selection={method:"split",lines:JSON.parse(JSON.stringify(awSplitLines(p))),date:now,byUid:SESSION.uid,byId:SESSION.id,byName:SESSION.name,justification:p.justification||"",viaApprovedAward:true};
   evN.updated=now;
   const rN=JSON.parse(JSON.stringify(r));
-  if(isChildSrc){ rN.scopeOnly=true; rN.quotationAmount=0; rN.committedAmount=0; rN.supplier="Multiple — Split Award"; }
+  /* v8.12.5: Case A — the evaluation source is an existing Child, so the EXISTING
+     Parent is a separate document that never entered the batch and kept its stored
+     "Requesting Quotation". Clone it, stamp the canonical post-award stage, and
+     commit it inside the SAME atomic WriteBatch. No second commit. */
+  /* v8.12.5: TARGETED update only — never a full-document set. The Parent is a live
+     shared document; rewriting it to synchronize one field could clobber concurrent
+     changes to unrelated fields. Only the deliberately changed fields travel. */
+  let pPatch=null;
+  if(isChildSrc){ rN.scopeOnly=true; rN.quotationAmount=0; rN.committedAmount=0; rN.supplier="Multiple — Split Award";
+    if((DB.procurement||[]).some(x=>x.id===parentId)) pPatch={status:AW_POST_AWARD_STAGE,updated:now};
+  }
   else { rN.recordType="parent"; rN.supplier="Multiple — Split Award";
     rN.status=AW_POST_AWARD_STAGE;                                          // v8.12.4: canonical post-award stage, same batch
     rN.quotationAmount=0; rN.committedAmount=0; rN.selectedAwardAmount=0;   // aggregates come ONLY from the awarded children
@@ -9308,6 +9318,7 @@ async function awApplySplit(r,ev,p){
       const strip=x=>(typeof fbStripFiles==="function")?fbStripFiles(JSON.parse(JSON.stringify(x))):x;
       batch.set(fs.collection("quoteEvals").doc(String(evN.id)), strip(evN));
       batch.set(fs.collection("procurement").doc(String(rN.id)), strip(rN));
+      if(pPatch) batch.update(fs.collection("procurement").doc(String(parentId)), pPatch);
       kids.forEach(k=>batch.set(fs.collection("procurement").doc(k.id), strip(k)));
       batch.set(fs.collection("procurementChildCounters").doc(String(parentId)), ctrN);
       await batch.commit();
@@ -9319,6 +9330,7 @@ async function awApplySplit(r,ev,p){
   }
   const qi=DB.quoteEvals.findIndex(e=>e.id===evN.id); if(qi>=0) DB.quoteEvals[qi]=JSON.parse(JSON.stringify(evN)); else DB.quoteEvals.push(JSON.parse(JSON.stringify(evN)));
   const ri=DB.procurement.findIndex(x=>x.id===rN.id); if(ri>=0) DB.procurement[ri]=JSON.parse(JSON.stringify(rN));
+  if(pPatch){ const pi=DB.procurement.findIndex(x=>x.id===parentId); if(pi>=0) Object.assign(DB.procurement[pi],pPatch); }
   kids.forEach(k=>{ const i2=DB.procurement.findIndex(x=>x.id===k.id); if(i2>=0) DB.procurement[i2]=JSON.parse(JSON.stringify(k)); else DB.procurement.push(JSON.parse(JSON.stringify(k))); });
   DB.procurementChildCounters=DB.procurementChildCounters||{}; DB.procurementChildCounters[parentId]=ctrN;
   saveDB(); _qe=JSON.parse(JSON.stringify(evN));
