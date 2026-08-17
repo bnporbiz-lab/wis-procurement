@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.12.9";
+const APP_VERSION = "v8.13.0";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -2806,7 +2806,7 @@ function renderDashboard(){
       ${kpi(I.box,"ic-blue",s.delivered,"Delivered Items")}
       ${kpi(I.cart,"ic-purple",s.ordered,"Ordered Items")}
       ${kpi(I.dollar,"ic-green",money(s.monthVal).replace(/\.00$/,""),"Monthly Procurement Value")}
-      ${kpi(I.cart,"ic-blue",DB.po.length,"Purchase Orders")}
+      ${kpi(I.cart,"ic-blue",DB.po.length,"All Purchase Orders")}
       ${kpi(I.box,"ic-purple",DB.stock.length,"Stock Items")}
       ${kpi(I.alert,"ic-red",DB.stock.filter(x=>(Number(x.qty)||0)<=(Number(x.reorder)||0)).length,"Low Stock Alerts")}
     </div>
@@ -2935,7 +2935,11 @@ const PROC_STAGE_DEFS = [
   {id:"Completed",            tab:"completed",  color:"#059669"},
   {id:"Cancelled",            tab:"completed",  color:"#dc2626"}
 ];
-const PROC_LEGACY_STAGE = {"To Do":"Requesting Quotation","In Progress":"In Production","Ordered":"PO Issued","Partially Delivered":"Partially Received","Delivered":"Fully Received","On Hold":"Pending Approval"};
+/* v8.13.0: "Pending" is made EXPLICIT rather than different. It was already resolving
+   to "Requesting Quotation" through procStage()'s unknown-value fallback; naming it
+   here documents the intent and removes the silent path. Deliberately NOT mapped to
+   "Pending Approval" — that would change output. Zero-output-change normalization. */
+const PROC_LEGACY_STAGE = {"To Do":"Requesting Quotation","Pending":"Requesting Quotation","In Progress":"In Production","Ordered":"PO Issued","Partially Delivered":"Partially Received","Delivered":"Fully Received","On Hold":"Pending Approval"};
 const PROC_TABS = [
   {id:"all",        label:"All Records"},
   {id:"rfq",        label:"RFQ"},
@@ -2952,6 +2956,21 @@ const PROC_TABS = [
 const AW_POST_AWARD_STAGE="Approved";
 function procStage(r){ const s=r.status||""; return PROC_LEGACY_STAGE[s] || (PROC_STAGE_DEFS.some(d=>d.id===s)?s:"Requesting Quotation"); }
 function procStageDef(stage){ return PROC_STAGE_DEFS.find(d=>d.id===stage) || PROC_STAGE_DEFS[0]; }
+/* v8.13.0: ONE canonical active-state rule for PROCUREMENT records, stage-based.
+   Reproduces the v8.12.9 expression it replaces exactly (!["Completed","Cancelled"]
+   over procStage). Deliberately NOT applied to PO documents (separate domain
+   vocabulary — see v8.13.0 §9) nor to Project/Maintenance records (still legacy
+   vocabulary by the v8.12.9 decision). procIsInFlight() is intentionally left alone:
+   it keys on RAW status and is consumed by Assignment Readiness and Bulk Assign, so
+   folding it in here would change behaviour on two surfaces outside this scope —
+   recorded as deferred technical debt. */
+const PROC_INACTIVE_STAGES=["Completed","Cancelled"];
+function procIsActive(r){ return !PROC_INACTIVE_STAGES.includes(procStage(r)); }
+/* v8.13.0: ONE canonical procurement paid amount. Same formula and same numeric
+   coercion as the five inline copies it replaces: deposit + finalPay via Number()||0,
+   so blanks, zeros and numeric strings behave identically. Payment storage, invoice
+   fields, actualAmount, committedAmount and PO financials are untouched. */
+function procPaidOf(r){ return (Number(r&&r.deposit)||0)+(Number(r&&r.finalPay)||0); }
 function procStageColor(r){ return isOverdue(r) ? "#dc2626" : procStageDef(procStage(r)).color; }
 function procTabOf(r){ return procStageDef(procStage(r)).tab; }
 function procDisplayId(r){ return r.pr || r.po || ("REC-"+String(r.id||"").slice(-6).toUpperCase()); }
@@ -3036,7 +3055,7 @@ function procQuickMatch(r,q){
       /* v8.11.4: same shared helper as the Approval Center — the two can never disagree */
       return getMyPendingApprovals().some(x=>(x.kind==="award"&&x.ev.id===r.id)||(x.kind==="po"&&x.po&&x.po.fromRecord===r.id)); }
     case "overdue": return isOverdue(r);
-    case "payment": { const paid=(Number(r.deposit)||0)+(Number(r.finalPay)||0); return paid < (Number(r.budget)||0) && !["Completed","Cancelled"].includes(procStage(r)); }
+    case "payment": { return procPaidOf(r) < (Number(r.budget)||0) && procIsActive(r); }
     case "delivery": { if(!r.due) return false; const d=new Date(r.due), n=new Date(); return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear(); }
     case "docs": return !(r.files&&r.files.length) || !r.quote || !r.pr;
     default: return true;
@@ -3100,7 +3119,7 @@ function procRows(opts){
 function procOperationalRows(opts){ return procRows(opts).filter(r=>r.scopeOnly!==true); }
 function procKPIs(){
   const all=procOperationalRows({ignoreTab:true});
-  const active=all.filter(r=>!["Completed","Cancelled"].includes(procStage(r)));
+  const active=all.filter(procIsActive);
   return {
     active: active.length,
     pending: all.filter(r=>procStage(r)==="Pending Approval").length,
@@ -3400,7 +3419,12 @@ function renderProcurement(){
   if(crumb) crumb.textContent="Manage procurement activities from approved PR through completion";
   const k=procKPIs();
   const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{maximumFractionDigits:0});
-  const suppliers=[...new Set(DB.procurement.map(r=>r.supplier).filter(Boolean))].sort();
+  /* v8.13.0: a scopeOnly:true evaluation source carries a pseudo-supplier
+     ("Multiple — Split Award") that is not an execution supplier, so it must not be a
+     selectable Supplier filter option. The RECORDS keep their stored value and remain
+     visible, searchable, openable and evaluable — only the dropdown options are
+     filtered. Execution children's real suppliers are unaffected. */
+  const suppliers=[...new Set(DB.procurement.filter(r=>r.scopeOnly!==true).map(r=>r.supplier).filter(Boolean))].sort();
   const responsibles=[...new Set(DB.procurement.map(r=>r.responsible).filter(Boolean))].sort();
   const tabCounts={}; PROC_TABS.forEach(t=>tabCounts[t.id]=0);
   procOperationalRows({ignoreTab:true}).forEach(r=>{ tabCounts.all++; tabCounts[procTabOf(r)]=(tabCounts[procTabOf(r)]||0)+1; });
@@ -3638,7 +3662,7 @@ function procParentPanel(r){
   const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
   const tile=(l,v,c)=>`<div style="border:1px solid var(--line,#e5e7eb);border-radius:10px;padding:8px"><div style="font-size:15px;font-weight:700;${c?("color:"+c):""}">${v}</div><div class="muted" style="font-size:10.5px">${l}</div></div>`;
   const kidsRows=s.kids.sort((a,b)=>(a.childSeq||0)-(b.childSeq||0)).map(c=>{
-    const paid=(Number(c.deposit)||0)+(Number(c.finalPay)||0);
+    const paid=procPaidOf(c);
     return `<tr style="cursor:pointer" onclick="openProcDrawer('${c.id}')">
       <td style="font-weight:700;color:#4338ca">${esc(childRef(c))}</td><td>${esc(c.supplier||"—")}</td>
       <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis">${esc(c.name)}</td>
@@ -3706,7 +3730,7 @@ function openProcDrawer(id){
   const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
   const row=(l,v)=>`<div class="pcc-dr"><span>${l}</span><b>${v||'<span class="muted">—</span>'}</b></div>`;
   const sec=(t,inner)=>`<div class="pcc-sec"><h4>${t}</h4>${inner}</div>`;
-  const paid=(Number(r.deposit)||0)+(Number(r.finalPay)||0);
+  const paid=procPaidOf(r);
   const _canMut=canMutateRecord(r), _canDup=!isViewer();
   const _creator=(DB.users.find(u=>u.id===r.createdBy)||{}).name||r.createdBy||"";
   d.innerHTML=`
@@ -5084,7 +5108,7 @@ function renderPO(){
   document.getElementById("content").innerHTML=`
     <div class="kpi-grid">
       <div class="kpi"><div class="ic ic-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><div class="val">${DB.po.length}</div><div class="lbl">Total Purchase Orders</div></div>
-      <div class="kpi"><div class="ic ic-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="val">${open}</div><div class="lbl">Open / In Progress</div></div>
+      <div class="kpi"><div class="ic ic-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="val">${open}</div><div class="lbl">Open Purchase Orders</div></div>
       <div class="kpi"><div class="ic ic-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><div class="val">${money(total).replace(/\.00$/,"")}</div><div class="lbl">Total PO Value</div></div>
     </div>
     <div class="toolbar">
@@ -5743,7 +5767,7 @@ function procChildStageCounts(parentDocId){
 }
 function procOutstanding(r){
   if(!r) return 0;
-  const paid=(Number(r.deposit)||0)+(Number(r.finalPay)||0);
+  const paid=procPaidOf(r);
   if(typeof procIsParent==="function" && procIsParent(r)){ const s=parentSummary(r); return Math.max(0,s.actual-s.paid); }
   if(typeof procIsChild==="function" && procIsChild(r)) return Math.max(0,(Number(r.actualAmount)||0)-paid);
   /* standalone semantics are UNCHANGED (v8.12.4 scope is Parent only): a standalone
@@ -5754,7 +5778,7 @@ function parentSummary(p){
   const kids=procFinancialKids(p.id);
   const n=f=>kids.reduce((a,c)=>a+(Number(c[f])||0),0);
   const est=Number(p.budget)||0, quoted=n("quotationAmount"), committed=n("committedAmount"), actual=n("actualAmount");
-  const paid=kids.reduce((a,c)=>a+((Number(c.deposit)||0)+(Number(c.finalPay)||0)),0);
+  const paid=kids.reduce((a,c)=>a+procPaidOf(c),0);
   const variance=actual-est, pct=est>0?(variance/est*100):null;
   /* v8.12.4: procurement AWARD variance — what the approved award saved against the
      estimate. Distinct from the Actual-vs-Budget cost variance above. */
