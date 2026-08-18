@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.13.0";
+const APP_VERSION = "v8.13.1";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -2954,6 +2954,24 @@ const PROC_TABS = [
    Quote Evaluation status, not a Procurement stage, and storing it here made
    procStage() fall back to "Requesting Quotation". */
 const AW_POST_AWARD_STAGE="Approved";
+/* v8.13.1: the canonical SYNTHETIC supplier marker written by awApplySplit() onto the
+   split-award aggregate Parent AND onto the scopeOnly evaluation source. It is a display
+   aggregate, never a selectable execution supplier. Named here so the dropdown generator
+   and awApplySplit share one definition instead of repeating the literal. */
+const AW_AGGREGATE_SUPPLIER="Multiple — Split Award";
+/* v8.13.1: is this record's supplier a real, selectable execution supplier?
+   STRUCTURAL predicate, not a blanket string ban:
+     - scopeOnly:true evaluation sources never contribute a supplier option (v8.13.0);
+     - the synthetic aggregate marker never contributes, wherever it appears — it is a
+       label the app itself writes, so no legitimate supplier can collide with it;
+     - every other supplier string, including one on a Parent, is preserved.
+   Stored values are NOT touched: the Parent row still displays the aggregate. */
+function procHasSelectableSupplier(r){
+  if(!r || !r.supplier) return false;
+  if(r.scopeOnly===true) return false;
+  if(String(r.supplier).trim()===AW_AGGREGATE_SUPPLIER) return false;
+  return true;
+}
 function procStage(r){ const s=r.status||""; return PROC_LEGACY_STAGE[s] || (PROC_STAGE_DEFS.some(d=>d.id===s)?s:"Requesting Quotation"); }
 function procStageDef(stage){ return PROC_STAGE_DEFS.find(d=>d.id===stage) || PROC_STAGE_DEFS[0]; }
 /* v8.13.0: ONE canonical active-state rule for PROCUREMENT records, stage-based.
@@ -3419,12 +3437,13 @@ function renderProcurement(){
   if(crumb) crumb.textContent="Manage procurement activities from approved PR through completion";
   const k=procKPIs();
   const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{maximumFractionDigits:0});
-  /* v8.13.0: a scopeOnly:true evaluation source carries a pseudo-supplier
-     ("Multiple — Split Award") that is not an execution supplier, so it must not be a
-     selectable Supplier filter option. The RECORDS keep their stored value and remain
-     visible, searchable, openable and evaluable — only the dropdown options are
-     filtered. Execution children's real suppliers are unaffected. */
-  const suppliers=[...new Set(DB.procurement.filter(r=>r.scopeOnly!==true).map(r=>r.supplier).filter(Boolean))].sort();
+  /* v8.13.1: v8.13.0 filtered only scopeOnly:true, but awApplySplit() also stamps the
+     same synthetic aggregate onto the split-award PARENT, which is not scopeOnly — so the
+     marker still reached the dropdown through the Parent. Both sources are now excluded
+     by procHasSelectableSupplier(). The RECORDS keep their stored value and remain
+     visible, searchable, openable and evaluable; the Parent row still displays the
+     aggregate. Only the dropdown OPTIONS are filtered. */
+  const suppliers=[...new Set(DB.procurement.filter(procHasSelectableSupplier).map(r=>r.supplier))].sort();
   const responsibles=[...new Set(DB.procurement.map(r=>r.responsible).filter(Boolean))].sort();
   const tabCounts={}; PROC_TABS.forEach(t=>tabCounts[t.id]=0);
   procOperationalRows({ignoreTab:true}).forEach(r=>{ tabCounts.all++; tabCounts[procTabOf(r)]=(tabCounts[procTabOf(r)]||0)+1; });
@@ -9457,10 +9476,10 @@ async function awApplySplit(r,ev,p){
      shared document; rewriting it to synchronize one field could clobber concurrent
      changes to unrelated fields. Only the deliberately changed fields travel. */
   let pPatch=null;
-  if(isChildSrc){ rN.scopeOnly=true; rN.quotationAmount=0; rN.committedAmount=0; rN.supplier="Multiple — Split Award";
+  if(isChildSrc){ rN.scopeOnly=true; rN.quotationAmount=0; rN.committedAmount=0; rN.supplier=AW_AGGREGATE_SUPPLIER;
     if((DB.procurement||[]).some(x=>x.id===parentId)) pPatch={status:AW_POST_AWARD_STAGE,updated:now};
   }
-  else { rN.recordType="parent"; rN.supplier="Multiple — Split Award";
+  else { rN.recordType="parent"; rN.supplier=AW_AGGREGATE_SUPPLIER;
     rN.status=AW_POST_AWARD_STAGE;                                          // v8.12.4: canonical post-award stage, same batch
     rN.quotationAmount=0; rN.committedAmount=0; rN.selectedAwardAmount=0;   // aggregates come ONLY from the awarded children
     rN.assignedToUids=rN.assignedToUids||[rN.assignedToUid].filter(Boolean);
