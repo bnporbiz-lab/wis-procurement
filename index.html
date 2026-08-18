@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.13.1";
+const APP_VERSION = "v8.13.2";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -3160,9 +3160,22 @@ function procKPIs(){
 /* ===== v8.3 Assignment Readiness Report (read-only) =====
    Answers the pre-publish questions with real numbers from THIS browser's
    Firestore-reconciled cache. Zero writes. */
-const PROC_CLOSED_STATUSES=["Completed","Cancelled"];
+/* v8.13.2: canonical TERMINAL procurement stages — the work is finished, so it is no
+   longer "in flight" for assignment purposes. This REPLACES PROC_CLOSED_STATUSES (which
+   existed only for procIsInFlight and listed RAW statuses), so no additional stage map
+   is introduced. Deliberately kept SEPARATE from PROC_INACTIVE_STAGES: procIsActive()
+   treats "Fully Received" as still active, which is a different business concept and is
+   unchanged by this release. */
+const PROC_TERMINAL_STAGES=["Completed","Cancelled","Fully Received"];
 const PROC_STATUS_VALID=["Requesting Quotation","Quotation Received","Under Evaluation","Pending Approval","Approved","PO Issued","In Production","In Transit","Partially Received","Fully Received","Completed","Cancelled","To Do","In Progress","Ordered","Partially Delivered","Delivered","On Hold"];
-function procIsInFlight(r){ return !PROC_CLOSED_STATUSES.includes(String(r&&r.status||"")); }
+/* v8.13.2: normalized through procStage(r) instead of the RAW stored status. Previously
+   a record stored as the legacy alias "Delivered" — which procStage maps to
+   "Fully Received" — still read as IN FLIGHT and was offered as assignable work by
+   Assignment Readiness and Bulk Assign; canonical "Fully Received" had the same problem.
+   Legacy aliases are now normalized once through the canonical map, and unknown/missing
+   statuses keep procStage()'s existing fallback — no second fallback is added here.
+   ELIGIBILITY only: no stored status is rewritten and no write shape changes. */
+function procIsInFlight(r){ if(!r) return false; return !PROC_TERMINAL_STAGES.includes(procStage(r)); }
 function assignmentReadiness(){
   const recs=DB.procurement||[], pos=DB.po||[];
   const assigned=recs.filter(r=>r.assignedToUid);
