@@ -2107,7 +2107,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.13.2";
+const APP_VERSION = "v8.13.3";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -3194,7 +3194,7 @@ function showAssignmentReadiness(){
   const pvRows=d.pv.length? d.pv.map(p=>`<tr><td>${esc(p.poNo||p.id)}</td><td style="font-size:11px">${esc(p.id)}</td><td>${esc(p.supplier||"")}</td><td>${esc((p.approval&&p.approval.verifierName)||"")}</td></tr>`).join("")
     : `<tr><td colspan="4" class="muted">None — no PO is waiting on the legacy Verify step</td></tr>`;
   const flRows=d.inflightList.slice(0,40).map(r=>`<tr><td style="font-size:11px">${esc(r.pr||"—")}</td><td style="font-size:11px">${esc(r.name).slice(0,40)}</td><td>${esc(r.campus||"")}</td><td>${esc(r.status||"")}</td><td>${esc(r.responsible||"")||'<span class="muted">—</span>'}</td></tr>`).join("");
-  openModal(`<div class="modal-head"><h3>Assignment Readiness — before publishing the new rules</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+  openModal(`<div class="modal-head"><h3>Assignment Readiness</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body">
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
       ${[["Procurement records",d.recs],["With assignedToUid",d.assigned],["Unassigned",d.unassigned],["Unassigned & in-flight",d.inflightUnassigned],["Purchase orders",d.pos],["Legacy Pending Verification",d.pv.length]]
@@ -3336,7 +3336,7 @@ function openBulkAssign(){
   const userOpts=DB.users.map(u=>`<option value="${esc(u.id)}">${esc(u.name)}${u.title?(" — "+esc(u.title)):""}</option>`).join("");
   openModal(`<div class="modal-head"><h3>Bulk Assign — Responsible Person</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body">
-    <p class="muted" style="font-size:12px;margin:0 0 10px">Assign in-flight legacy records before the new rules go live. Nothing is written until you confirm the preview. Creator and history are preserved; completed/cancelled records may stay unassigned.</p>
+    <p class="muted" style="font-size:12px;margin:0 0 10px">Assign responsible persons to eligible in-flight procurement records. Nothing is written until you confirm the preview. Creator and history are preserved; completed or cancelled records may remain unassigned.</p>
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <label style="font-size:12px"><input type="checkbox" id="ba_f_un" checked onchange="_baFilter.unassignedOnly=this.checked;paintBulkAssign()"> Unassigned only</label>
       <label style="font-size:12px"><input type="checkbox" id="ba_f_act" checked onchange="_baFilter.activeOnly=this.checked;paintBulkAssign()"> Active / in-flight only</label>
