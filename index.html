@@ -1111,6 +1111,8 @@ async function updateStorageMeter(){
   }catch(e){ host.textContent="Attachments are stored separately in IndexedDB (large capacity)."; }
 }
 async function compactStorage(){
+  if(!isSuper()){ toast("Not permitted","Storage compaction requires a Super Administrator.","err",7000); return; }
+
   try{
     const before=dbStorageBytes();
     let moved=0;
@@ -1420,6 +1422,14 @@ async function pullLatestSmart(){
   if(typeof fbActive==="function" && fbActive()){ await fbRebuildCacheFromCloud({}); if(typeof updateSyncStatusCard==="function") updateSyncStatusCard(); return; }
   await syncPull(false); if(typeof updateSyncStatusCard==="function") updateSyncStatusCard();
 }
+/* v8.13.5 r2: Backup-page Super wrappers. Core sync primitives stay available
+   to the app; the Backup page invokes ONLY these guarded wrappers. */
+function backupGuard(){ if(!isSuper()){ toast("Not permitted","Backup & Restore requires a Super Administrator.","err",7000); return false; } return true; }
+function backupPullLatest(){ if(!backupGuard()) return; return pullLatestSmart(); }
+function backupPushNow(){ if(!backupGuard()) return; return syncPush(false).then(()=>updateSyncStatusCard()); }
+function backupForcePull(){ if(!backupGuard()) return; return forceSyncPullLegacy(); }
+function backupRebuild(){ if(!backupGuard()) return; return fbRebuildConfirm(); }
+function backupDiagnostics(){ if(!backupGuard()) return; return fbShowSyncDiagnostics(); }
 function fbRebuildConfirm(){
   if(!(typeof fbActive==="function" && fbActive())){ toast("Not connected","Firebase must be live","err"); return; }
   confirmModal("Rebuild this browser's cache from Firebase?","Downloads the authoritative cloud dataset (read-only, no Sheets), validates it, and replaces ONLY the business records in this browser. Login and preferences are kept. Stale local-only records will stop being counted here — export a JSON backup first if you want a copy of them.",()=>{ fbRebuildCacheFromCloud({}); },"Rebuild from Firebase",false);
@@ -1578,6 +1588,7 @@ async function fbFlush(){
     Object.keys(sh).forEach(id=>{ if(!(id in cur)){ if(!skipUsers) ops.push({t:"del",c:k,id:id}); delete sh[id]; } });
   });
   [["settings",fbMetaSettings()],["maintPrices",DB.maintPrices||{}],["poItemCatalog",DB.poItemCatalog||{}]].forEach(pair=>{
+    if(pair[0]==="settings" && !(SESSION && SESSION.role==="superadmin")) return;   /* v8.13.5 r2: non-Super sessions never push meta/settings - server keeps it Super-only, per-device preferences stay local, and a denied write cannot poison the shared sync batch */
     const j=JSON.stringify(pair[1]);
     if(_fb.shadow.__meta[pair[0]]!==j){ ops.push({t:"set",c:"meta",id:pair[0],d:JSON.parse(j)}); _fb.shadow.__meta[pair[0]]=j; }
   });
@@ -1709,6 +1720,8 @@ function fbAfterRemote(){
 
 /* ---- Settings actions ---- */
 function fbSaveConnect(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   const ta=document.getElementById("fbCfgTa"); if(!ta) return;
   let cfg=null;
   let raw=ta.value.trim();
@@ -1721,6 +1734,8 @@ function fbSaveConnect(){
   fbConnect(cfg, true);
 }
 function fbDisconnect(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   fbStopListeners(); _fb.ready=false;
   localStorage.removeItem(FB_CFG_KEY);
   if(DB.settings) delete DB.settings.fbConfigShare;
@@ -1730,6 +1745,8 @@ function fbDisconnect(){
   toast("Firebase disconnected","Records sync falls back to the Google Sheet.","ok",6000);
 }
 async function fbMigrateAll(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   if(!_fb.ready){ toast("Connect Firebase first","","err"); return; }
   toast("Uploading everything…","This runs once and may take a minute.","ok",5000);
   fbBuildShadow();
@@ -2007,6 +2024,8 @@ async function updateSyncStatusCard(){
 /* Surgical restore: take ONLY the quarterly maintenance grids from a backup file.
    Touches nothing else — safe under live sync (no deletions, no replacement). */
 function restoreQuartersFromBackup(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   const inp=document.createElement("input"); inp.type="file"; inp.accept=".json,application/json";
   inp.onchange=(e)=>{
     const f=e.target.files && e.target.files[0]; if(!f) return;
@@ -2110,6 +2129,11 @@ function currentUser(){ return SESSION; }
 function isSuper(){ return SESSION && SESSION.role==="superadmin"; }
 function isViewer(){ return !!(SESSION && SESSION.role==="viewer"); }
 function isEntry(){ return !!(SESSION && SESSION.role==="entry"); }
+function isAdminOrSuper(){ return !!(SESSION && (SESSION.role==="admin" || SESSION.role==="superadmin")); }
+/* v8.13.5 — ONE central module-access predicate. Protected modules are Super-only. */
+const PROTECTED_MODULES=["users","settings","backup"];
+function canAccessModule(mod){ return !PROTECTED_MODULES.includes(mod) || isSuper(); }
+function moduleDenyToast(){ toast("Not permitted","This module requires a Super Administrator account.","err",6000); }
 // Can the current user modify this record? Admins: always. Data Entry: only records they created. Viewer: never.
 function canMutateRecord(r){
   if(isViewer()) return false;
@@ -2120,8 +2144,13 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.13.4";
+const APP_VERSION = "v8.13.5";
 const CHANGELOG = [
+  { v:"v8.13.5", date:"Aug 2026", notes:[
+    "Role-access hardening: User Management, Settings and Backup & Restore are Super Administrator only (navigation, direct routes, renderers and every save/import handler)",
+    "Duplicate and Close Record are Admin/Super only in both the interface and the handlers; kanban drag-and-drop is Admin/Super only",
+    "All stored-record, saved-view, construction-tab and account deletions are Super Administrator only; denied actions change nothing locally and queue nothing",
+    "Server rules candidate: meta documents are role-scoped (settings Super-only; price/catalog lists Admin/Super) and generic side-collection writes are Admin/Super only" ]},
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
     "The Child PO pre-fills through the EXISTING PO workflow: PR, supplier, description, campus and assignee from the Child, and the PO value defaults to the Child's COMMITTED amount (never the Parent estimate, quotation, or actual)",
@@ -2606,7 +2635,7 @@ function buildNav(){
   const nav=document.getElementById("navMenu"); nav.innerHTML="";
   let lastGrp="";
   MODULES.forEach(m=>{
-    if(m.adminOnly && !isSuper()) return;
+    if(!canAccessModule(m.id)) return;
     if(m.grp!==lastGrp){ const l=document.createElement("div"); l.className="nav-label"; l.textContent=m.grp; nav.appendChild(l); lastGrp=m.grp; }
     const b=document.createElement("button");
     b.className="nav-item"+(m.id===CURRENT?" active":"");
@@ -2659,11 +2688,12 @@ function procListNavItem(id,name){
   const isActive=CURRENT==="procurement" && _procListId===id;
   a.className="nav-sublist"+(isActive?" active":"");
   a.onclick=()=>{ _procListId=id; navigate("procurement"); toggleSidebar(false); };
-  const menu=id!=="all"?`<span class="nav-add" title="List options" onclick="event.stopPropagation();openProcListMenu('${id}')">⋯</span>`:"";
+  const menu=(id!=="all"&&isAdminOrSuper())?`<span class="nav-add" title="List options" onclick="event.stopPropagation();openProcListMenu('${id}')">⋯</span>`:"";
   a.innerHTML=`<span class="nav-sublist-dot"></span><span class="nav-sublist-name">${esc(name)}</span>${menu}<span class="badge">${procListCount(id)}</span>`;
   return a;
 }
 function navigate(mod){
+  if(!canAccessModule(mod)){ moduleDenyToast(); return; }   /* v8.13.5: reject BEFORE CURRENT, page state, title or any renderer */
   if(!MODULES.some(x=>x.id===mod)) mod="procurement";   // removed/unknown module (e.g. old AC Task Tracker) → its new home
   CURRENT=mod;
   try{ document.body.dataset.page=mod; }catch(e){}
@@ -3487,7 +3517,7 @@ function renderProcurement(){
         ${(!isEntrySession()&&!isViewerSession())?`<button class="btn btn-ghost" onclick="openBulkAssign()" title="Assign existing records to a responsible person">Bulk Assign</button><button class="btn btn-ghost" onclick="showAssignmentReadiness()" title="Read-only readiness report">Readiness Report</button>`:""}
         <button class="btn btn-ghost btn-sm" onclick="exportProcurementExcel()">Export</button>
         <button class="btn btn-ghost btn-sm" onclick="printProcurement()">Print</button>
-        <button class="btn btn-ghost btn-sm" onclick="openManageCategories()">Manage Categories</button>
+        ${isAdminOrSuper()?`<button class="btn btn-ghost btn-sm" onclick="openManageCategories()">Manage Categories</button>`:""}
       </div>
     </div>
 
@@ -3536,7 +3566,7 @@ function renderProcurement(){
 
     <div class="pcc-quick">
       ${PROC_QUICK.map(q=>`<button class="pcc-chip${_procQuick===q.id?' on':''}" onclick="_procQuick=(_procQuick==='${q.id}'?'':'${q.id}');renderProcurement()">${q.label}</button>`).join("")}
-      ${(DB.settings.procViews||[]).map((v,i)=>`<button class="pcc-chip saved" onclick="procApplyView(${i})" title="Saved view">★ ${esc(v.name)}<span onclick="event.stopPropagation();procDeleteView(${i})" style="margin-left:6px;opacity:.6">✕</span></button>`).join("")}
+      ${(DB.settings.procViews||[]).map((v,i)=>`<button class="pcc-chip saved" onclick="procApplyView(${i})" title="Saved view">★ ${esc(v.name)}${isSuper()?`<span onclick="event.stopPropagation();procDeleteView(${i})" style="margin-left:6px;opacity:.6">✕</span>`:""}</button>`).join("")}
     </div>
 
     <div id="tableHost"></div>
@@ -3563,7 +3593,7 @@ function procSaveView(){
   saveDB(); renderProcurement(); toast("View saved","","ok");
 }
 function procApplyView(i){ const v=(DB.settings.procViews||[])[i]; if(!v) return; _procF=Object.assign({q:"",campus:"",cat:"",supplier:"",responsible:"",stage:"",due:""},v.f||{}); _procTab=v.tab||"all"; _procQuick=v.quick||""; renderProcurement(); }
-function procDeleteView(i){ (DB.settings.procViews||[]).splice(i,1); saveDB(); renderProcurement(); }
+function procDeleteView(i){ if(!isSuper()){ toast("Not permitted","Deleting saved views requires a Super Administrator.","err",6000); return; } (DB.settings.procViews||[]).splice(i,1); saveDB(); renderProcurement(); }
 
 /* ---- Column settings ---- */
 function openProcColumns(){
@@ -3649,7 +3679,7 @@ function paintProcurement(){
        <td class="pcc-actcol" onclick="event.stopPropagation()"><div class="row-actions">
          ${canMutateRecord(r)?`<button class="act-btn" title="Edit" onclick="openRecordForm('procurement','${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>`:""}
          ${isEntry()?"":(function(){ const lp=recLinkedPO(r); if(lp) return `<button class="act-btn" title="View Purchase Order" onclick="viewPO('${lp.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6"/></svg></button>`; if(!poCreateAllowed(r)) return ""; return `<button class="act-btn" title="Create Purchase Order" style="color:var(--primary)" onclick="createPOFromRecord('${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>`; })()}
-         ${(canMutateRecord(r)&&!isEntry())?`<button class="act-btn del" title="Delete" onclick="deleteRecord('procurement','${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}
+         ${isSuper()?`<button class="act-btn del" title="Delete" onclick="deleteRecord('procurement','${r.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}
        </div></td>
      </tr>`+((procIsParent(r)&&_procExpanded[r.id])?procChildRowsHtml(r,cols.length+1):"")).join("")}
      </tbody>
@@ -3676,7 +3706,7 @@ function paintProcurementBoard(host){
     return `<div class="pcc-col" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="this.classList.remove('over');procDropStage(event,'${esc(d.id)}')">
       <div class="pcc-col-head"><span class="pcc-stage" style="color:${d.color}"><i style="background:${d.color}"></i>${esc(d.id)}</span><span class="pcc-col-n">${list.length}</span></div>
       <div class="pcc-col-body">
-      ${list.map(r=>`<div class="pcc-bcard" draggable="${isViewer()?'false':'true'}" ondragstart="event.dataTransfer.setData('text/plain','${r.id}')" onclick="openProcDrawer('${r.id}')">
+      ${list.map(r=>`<div class="pcc-bcard" draggable="${isAdminOrSuper()?'true':'false'}" ondragstart="event.dataTransfer.setData('text/plain','${r.id}')" onclick="openProcDrawer('${r.id}')">
         <div class="pcc-bcard-id">${esc(procDisplayId(r))}</div>
         <div class="pcc-bcard-name">${esc(r.name)}</div>
         <div class="pcc-bcard-foot"><b>${usd(r.budget)}</b>${isOverdue(r)?'<span style="color:#dc2626">Overdue</span>':`<span class="muted">${fmtDateUS(r.due)}</span>`}</div>
@@ -3686,9 +3716,8 @@ function paintProcurementBoard(host){
 }
 function procDropStage(ev,stage){
   ev.preventDefault();
-  if(isViewer()){ toast("View-only account","This account can't change record stages","err"); return; }
+  if(!isAdminOrSuper()){ toast("Not permitted","Only an Administrator can move records between stages.","err",6000); return; }   /* v8.13.5: role guard BEFORE any status/history/DB/Firebase change */
   const id=ev.dataTransfer.getData("text/plain"); const r=DB.procurement.find(x=>x.id===id); if(!r) return;
-  if(isEntry() && !canMutateRecord(r)){ toast("Not your record","A Data Entry account can only move records assigned to it.","err",6000); return; }
   if(procStage(r)===stage) return;
   { /* rev2: shared guard */
     if(!recvTransitionCheck(procStage(r),stage).ok){
@@ -3780,7 +3809,7 @@ function openProcDrawer(id){
   const row=(l,v)=>`<div class="pcc-dr"><span>${l}</span><b>${v||'<span class="muted">—</span>'}</b></div>`;
   const sec=(t,inner)=>`<div class="pcc-sec"><h4>${t}</h4>${inner}</div>`;
   const paid=procPaidOf(r);
-  const _canMut=canMutateRecord(r), _canDup=!isViewer();
+  const _canEdit=canMutateRecord(r), _canClose=isAdminOrSuper(), _canDup=isAdminOrSuper();   /* v8.13.5 r2: Edit follows the ACCEPTED assigned-record predicate; Duplicate + Close stay Admin/Super only */
   const _creator=(DB.users.find(u=>u.id===r.createdBy)||{}).name||r.createdBy||"";
   d.innerHTML=`
    <div class="pcc-drawer-head">
@@ -3825,14 +3854,14 @@ function openProcDrawer(id){
        return (isViewer()||isEntry()||!poCreateAllowed(r))?"":`<button class="btn btn-primary btn-sm" style="margin-right:auto" onclick="closeProcDrawer();createPOFromRecord('${r.id}')">Create Purchase Order</button>`; })()}
      ${(!isViewer()&&!isEntry()&&procType(r)==="standalone")?`<button class="btn btn-ghost btn-sm" onclick="convertToParent('${r.id}')">Convert to Parent</button>`:""}
      ${_canDup?`<button class="btn btn-ghost btn-sm" onclick="procDuplicate('${r.id}')">Duplicate</button>`:""}
-     ${_canMut?`<button class="btn btn-ghost btn-sm" onclick="procCloseRecord('${r.id}')">Close Record</button>`:""}
+     ${_canClose?`<button class="btn btn-ghost btn-sm" onclick="procCloseRecord('${r.id}')">Close Record</button>`:""}
      <button class="btn btn-ghost btn-sm" onclick="procDrawerPDF('${r.id}')">Download PDF</button>
-     ${_canMut?`<button class="btn btn-primary btn-sm" onclick="closeProcDrawer();openRecordForm('procurement','${r.id}')">Edit</button>`:""}
+     ${_canEdit?`<button class="btn btn-primary btn-sm" onclick="closeProcDrawer();openRecordForm('procurement','${r.id}')">Edit</button>`:""}
    </div>`;
   d.classList.add("open"); b.classList.add("open");
 }
 function procDuplicate(id){
-  if(isViewer()){ toast("View-only account","","err"); return; }
+  if(!isAdminOrSuper()){ toast("Not permitted","Duplicate requires an Administrator account.","err",6000); return; }
   const r=DB.procurement.find(x=>x.id===id); if(!r) return;
   const copy=JSON.parse(JSON.stringify(r));
   copy.createdBy=(SESSION&&SESSION.id)||"";
@@ -3841,6 +3870,7 @@ function procDuplicate(id){
   DB.procurement.unshift(copy); saveDB(); closeProcDrawer(); renderProcurement(); buildNav(); toast("Record duplicated","","ok");
 }
 function procCloseRecord(id){
+  if(!isAdminOrSuper()){ toast("Not permitted","Close Record requires an Administrator account.","err",6000); return; }
   { const _r=(DB.procurement||[]).find(x=>x.id===id);
     if(_r && !recvTransitionCheck(_r.status||null,"Completed").ok){ recvDenyToast(); return; } }
   const r=DB.procurement.find(x=>x.id===id); if(!r) return;
@@ -3918,6 +3948,8 @@ const PROC_GROUP_COLORS={
 /* ---------- Procurement list management ---------- */
 // Manage all procurement categories from one modal (replaces the old sidebar per-list menus)
 function openManageCategories(){
+  if(!isAdminOrSuper()){ toast("Not permitted","Managing procurement categories requires an Administrator.","err",6000); return; }
+
   const usd=v=>"$"+(Number(v)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
   const lists=activeProcLists();
   const catTotal=id=>DB.procurement.filter(r=>r.listId===id).reduce((s,r)=>s+(Number(r.budget)||0),0);
@@ -3928,35 +3960,39 @@ function openManageCategories(){
         <div style="font-weight:600;font-size:13.5px">${esc(l.name)}</div>
         <div class="muted" style="font-size:11.5px">${procListCount(l.id)} record(s) · ${usd(catTotal(l.id))}${l.campus?" · "+esc(l.campus):""}</div>
       </div>
-      <button class="btn btn-ghost btn-sm" title="Move up" onclick="moveProcList('${l.id}',-1);openManageCategories()" ${i===0?'disabled style="opacity:.4"':''}>↑</button>
+${isAdminOrSuper()?`      <button class="btn btn-ghost btn-sm" title="Move up" onclick="moveProcList('${l.id}',-1);openManageCategories()" ${i===0?'disabled style="opacity:.4"':''}>↑</button>
       <button class="btn btn-ghost btn-sm" title="Move down" onclick="moveProcList('${l.id}',1);openManageCategories()" ${i===lists.length-1?'disabled style="opacity:.4"':''}>↓</button>
       <button class="btn btn-ghost btn-sm" onclick="closeModal();openProcListForm('${l.id}')">Rename</button>
       <button class="btn btn-ghost btn-sm" onclick="archiveProcList('${l.id}');setTimeout(openManageCategories,50)">Archive</button>
-      ${procListCount(l.id)===0?`<button class="btn btn-danger btn-sm" onclick="closeModal();deleteProcList('${l.id}')">Delete</button>`:''}
+      `:''}${(isSuper()&&procListCount(l.id)===0)?`<button class="btn btn-danger btn-sm" onclick="closeModal();deleteProcList('${l.id}')">Delete</button>`:''}
     </div>`).join("");
   const archived=DB.procurementLists.filter(x=>x.archived);
   openModal(`<div class="modal-head"><h3>Manage Categories</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <p class="muted" style="font-size:12.5px;margin:0">${lists.length} categor${lists.length===1?'y':'ies'} · ${procTopLevel().length} total record(s)</p>
-      <button class="btn btn-primary btn-sm" onclick="closeModal();openProcListForm()">+ Add Category</button>
+      ${isAdminOrSuper()?`<button class="btn btn-primary btn-sm" onclick="closeModal();openProcListForm()">+ Add Category</button>`:""}
     </div>
     ${rows||'<p class="muted" style="font-size:13px">No categories yet. Click “Add Category” to create one.</p>'}
     ${unassigned.length?`<div style="margin-top:10px;padding:9px 10px;border:1px dashed var(--border);border-radius:9px"><div style="font-weight:600;font-size:13px">Unassigned</div><div class="muted" style="font-size:11.5px">${unassigned.length} record(s) · ${usd(unassigned.reduce((s,r)=>s+(Number(r.budget)||0),0))} — edit a record to assign it a category</div></div>`:''}
-    ${archived.length?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px"><div class="muted" style="font-size:12px;margin-bottom:8px">Archived categories</div>${archived.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0"><span style="font-size:13px">${esc(x.name)}</span><button class="btn btn-ghost btn-sm" onclick="restoreProcList('${x.id}');setTimeout(openManageCategories,50)">Restore</button></div>`).join("")}</div>`:''}
+    ${archived.length?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px"><div class="muted" style="font-size:12px;margin-bottom:8px">Archived categories</div>${archived.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0"><span style="font-size:13px">${esc(x.name)}</span>${isAdminOrSuper()?`<button class="btn btn-ghost btn-sm" onclick="restoreProcList('${x.id}');setTimeout(openManageCategories,50)">Restore</button>`:''}</div>`).join("")}</div>`:''}
   </div>
   <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Done</button></div>`,{size:"wide"});
 }
 function openProcListForm(id){
+  if(!isAdminOrSuper()){ toast("Not permitted","Managing procurement categories requires an Administrator.","err",6000); return; }
+
   const l=id?DB.procurementLists.find(x=>x.id===id):null;
   openModal(`<div class="modal-head"><h3>${id?"Rename":"New"} Procurement List</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body"><div class="form-grid">
     <div class="field full"><label class="req">List Name</label><input id="pl_name" value="${esc(l?.name||'')}" placeholder="e.g. WESTEC New Campus"></div>
     <div class="field full"><label>Assign Campus / Project (optional)</label><select id="pl_campus"><option value="">— None —</option>${PROC_CAMPUSES.map(c=>`<option ${l?.campus===c?'selected':''}>${c}</option>`).join("")}</select></div>
   </div></div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveProcList(${id?`'${id}'`:'null'})">Save</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>${isAdminOrSuper()?`<button class="btn btn-primary" onclick="saveProcList(${id?`'${id}'`:'null'})">Save</button>`:''}</div>`);
 }
 function saveProcList(id){
+  if(!isAdminOrSuper()){ toast("Not permitted","Managing procurement categories requires an Administrator.","err",6000); return; }
+
   const name=document.getElementById("pl_name").value.trim();
   if(!name){ toast("List name is required","","err"); return; }
   const campus=document.getElementById("pl_campus").value;
@@ -3965,36 +4001,46 @@ function saveProcList(id){
   saveDB(); closeModal(); buildNav(); if(CURRENT==="procurement") renderProcurement();
 }
 function openProcListMenu(id){
+  if(!isAdminOrSuper()){ toast("Not permitted","Managing procurement categories requires an Administrator.","err",6000); return; }
+
   const l=DB.procurementLists.find(x=>x.id===id);
   const count=procListCount(id);
   openModal(`<div class="modal-head"><h3>${esc(l.name)}</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body">
     <p class="muted" style="font-size:12.5px;margin:0 0 12px">${count} record(s) in this list.</p>
     <div style="display:flex;flex-direction:column;gap:8px">
-      <button class="btn btn-ghost" style="justify-content:flex-start" onclick="closeModal();openProcListForm('${id}')">Rename list</button>
-      <button class="btn btn-ghost" style="justify-content:flex-start" onclick="moveProcList('${id}',-1)">Move up</button>
-      <button class="btn btn-ghost" style="justify-content:flex-start" onclick="moveProcList('${id}',1)">Move down</button>
-      <button class="btn btn-ghost" style="justify-content:flex-start" onclick="archiveProcList('${id}')">Archive list</button>
-      <button class="btn btn-danger" style="justify-content:flex-start" onclick="deleteProcList('${id}')">Delete list</button>
+      ${isAdminOrSuper()?`<button class="btn btn-ghost" style="justify-content:flex-start" onclick="closeModal();openProcListForm('${id}')">Rename list</button>`:''}
+      ${isAdminOrSuper()?`<button class="btn btn-ghost" style="justify-content:flex-start" onclick="moveProcList('${id}',-1)">Move up</button>`:''}
+      ${isAdminOrSuper()?`<button class="btn btn-ghost" style="justify-content:flex-start" onclick="moveProcList('${id}',1)">Move down</button>`:''}
+      ${isAdminOrSuper()?`<button class="btn btn-ghost" style="justify-content:flex-start" onclick="archiveProcList('${id}')">Archive list</button>`:''}
+      ${isSuper()?`<button class="btn btn-danger" style="justify-content:flex-start" onclick="deleteProcList('${id}')">Delete list</button>`:""}
     </div>
-    ${DB.procurementLists.some(x=>x.archived)?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px"><div class="muted" style="font-size:12px;margin-bottom:8px">Archived lists</div>${DB.procurementLists.filter(x=>x.archived).map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0"><span>${esc(x.name)}</span><button class="btn btn-ghost btn-sm" onclick="restoreProcList('${x.id}')">Restore</button></div>`).join("")}</div>`:""}
+    ${DB.procurementLists.some(x=>x.archived)?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px"><div class="muted" style="font-size:12px;margin-bottom:8px">Archived lists</div>${DB.procurementLists.filter(x=>x.archived).map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0"><span>${esc(x.name)}</span>${isAdminOrSuper()?`<button class="btn btn-ghost btn-sm" onclick="restoreProcList('${x.id}')">Restore</button>`:''}</div>`).join("")}</div>`:""}
   </div>`);
 }
 function moveProcList(id,dir){
+  if(!isAdminOrSuper()){ toast("Not permitted","Managing procurement categories requires an Administrator.","err",6000); return; }
+
   const lists=activeProcLists(); const i=lists.findIndex(l=>l.id===id);
   const j=i+dir; if(j<0||j>=lists.length){ return; }
   const a=lists[i],b=lists[j]; const ao=a.order, bo=b.order; a.order=bo; b.order=ao;
   saveDB(); buildNav();
 }
 function archiveProcList(id){
+  if(!isAdminOrSuper()){ toast("Not permitted","Managing procurement categories requires an Administrator.","err",6000); return; }
+
   const l=DB.procurementLists.find(x=>x.id===id);
   l.archived=true; saveDB(); closeModal(); buildNav();
   if(_procListId===id){ _procListId="all"; }
   if(CURRENT==="procurement") renderProcurement();
   toast("List archived","","ok");
 }
-function restoreProcList(id){ const l=DB.procurementLists.find(x=>x.id===id); l.archived=false; saveDB(); buildNav(); openProcListMenu(id); toast("List restored","","ok"); }
+function restoreProcList(id){
+  if(!isAdminOrSuper()){ toast("Not permitted","Managing procurement categories requires an Administrator.","err",6000); return; }
+ const l=DB.procurementLists.find(x=>x.id===id); l.archived=false; saveDB(); buildNav(); openProcListMenu(id); toast("List restored","","ok"); }
 function deleteProcList(id){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
+
   const count=procListCount(id);
   if(count>0){ toast("List not empty",`Move or archive its ${count} record(s) first`,"err"); return; }
   confirmModal("Delete empty list?","This list has no records and will be removed.",()=>{
@@ -4081,7 +4127,7 @@ function paintTable(set){
         <button class="act-btn" title="Edit" onclick="openRecordForm('${set}','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
         ${set==="procurement"?(function(){ const lp=recLinkedPO(r); if(lp) return `<button class="act-btn" title="View Purchase Order" onclick="viewPO('${lp.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6"/></svg></button>`; if(!poCreateAllowed(r)) return ""; return `<button class="act-btn" title="Create Purchase Order" style="color:var(--primary)" onclick="createPOFromRecord('${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>`; })():""}
         <button class="act-btn" title="Download" onclick="downloadRecord('${set}','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
-        <button class="act-btn del" title="Delete" onclick="deleteRecord('${set}','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        ${isSuper()?`<button class="act-btn del" title="Delete" onclick="deleteRecord('${set}','${r.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>`:""}
       </div></td>
     </tr>`;
   }).join("");
@@ -4502,7 +4548,7 @@ async function doSaveRecord(set,id){
 }
 
 function deleteRecord(set,id){
-  if(isEntrySession()||isViewerSession()){ toast("Not permitted","Deleting records requires an administrator.","err"); return; }
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
   if(set==="procurement"){ const r=DB.procurement.find(x=>x.id===id);
     if(r && procIsParent(r)){ const n=procChildrenOf(id).length;
       if(n>0){ toast("Parent cannot be deleted", "This Parent contains "+n+" Child Procurement record(s). Handle the Children individually first — no cascade delete exists by design.","err",9000); return; } } }
@@ -4613,7 +4659,7 @@ function paintSuppliers(q){
       return `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.contact)||'<span class="muted">—</span>'}</td><td>${esc(s.email)||'<span class="muted">—</span>'}</td><td>${esc(s.phone)||'<span class="muted">—</span>'}</td><td>${esc(s.country)||'<span class="muted">—</span>'}</td><td><span class="chip-cat">${cnt} linked</span></td><td>${att}</td>
       <td><div class="row-actions">
         <button class="act-btn" title="Edit" onclick="openSupplierForm('${s.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
-        <button class="act-btn del" title="Delete" onclick="deleteSupplier('${s.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+        ${isSuper()?`<button class="act-btn del" title="Delete" onclick="deleteSupplier('${s.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}
       </div></td></tr>`;
     }).join("")
   }</tbody></table>`;
@@ -4649,6 +4695,8 @@ async function saveSupplier(id){
   saveDB(); closeModal(); paintSuppliers(""); buildNav();
 }
 function deleteSupplier(id){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
+
   const s=DB.suppliers.find(x=>x.id===id);
   confirmModal("Delete supplier?",`"${esc(s.name)}" will be removed. Linked records keep their supplier text.`,()=>{ DB.suppliers=DB.suppliers.filter(x=>x.id!==id); saveDB(); paintSuppliers(""); buildNav(); toast("Supplier deleted","","ok"); },"Delete");
 }
@@ -4679,7 +4727,7 @@ function renderBudget(){
       }).join("")||`<tr><td colspan="6"><div class="empty"><h4>No budget data</h4><p>Add allocations and create records to track spend.</p></div></td></tr>`
     }</tbody></table></div></div>
     <div class="card" style="margin-top:18px"><div class="card-head"><h3>Budget Allocations</h3></div><div class="card-body"><div class="table-scroll"><table class="data" style="min-width:600px"><thead><tr><th>Campus / Project</th><th>Fiscal Year</th><th>Amount</th><th>Note</th><th>Action</th></tr></thead><tbody>${
-      DB.budget.length?DB.budget.map(b=>`<tr><td>${esc(b.campus)}</td><td>${esc(b.year)||'—'}</td><td><b>${money(b.amount)}</b></td><td>${esc(b.note)||'<span class="muted">—</span>'}</td><td><div class="row-actions"><button class="act-btn" onclick="openBudgetForm('${b.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button><button class="act-btn del" onclick="deleteBudget('${b.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`).join(""):`<tr><td colspan="5"><span class="muted">No allocations added.</span></td></tr>`
+      DB.budget.length?DB.budget.map(b=>`<tr><td>${esc(b.campus)}</td><td>${esc(b.year)||'—'}</td><td><b>${money(b.amount)}</b></td><td>${esc(b.note)||'<span class="muted">—</span>'}</td><td><div class="row-actions"><button class="act-btn" onclick="openBudgetForm('${b.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>${isSuper()?`<button class="act-btn del" onclick="deleteBudget('${b.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}</div></td></tr>`).join(""):`<tr><td colspan="5"><span class="muted">No allocations added.</span></td></tr>`
     }</tbody></table></div></div></div>`;
 }
 function openBudgetForm(id){
@@ -4700,7 +4748,9 @@ function saveBudget(id){
   if(id){ const i=DB.budget.findIndex(x=>x.id===id); DB.budget[i]=obj; } else DB.budget.unshift(obj);
   saveDB(); closeModal(); renderBudget(); toast("Budget saved","","ok");
 }
-function deleteBudget(id){ confirmModal("Delete allocation?","This budget allocation will be removed.",()=>{ DB.budget=DB.budget.filter(x=>x.id!==id); saveDB(); renderBudget(); toast("Allocation deleted","","ok"); },"Delete"); }
+function deleteBudget(id){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
+ confirmModal("Delete allocation?","This budget allocation will be removed.",()=>{ DB.budget=DB.budget.filter(x=>x.id!==id); saveDB(); renderBudget(); toast("Allocation deleted","","ok"); },"Delete"); }
 /* ============================================================
    USER MANAGEMENT (Super Admin only)
 ============================================================ */
@@ -4773,6 +4823,8 @@ async function fbToggleProfile(uid, status){
   try{ await _fb.app.firestore().collection("profiles").doc(uid).set({status:status},{merge:true}); toast(status==="disabled"?"Account disabled":"Account enabled","","ok"); fbFillProfiles(); }catch(e){ toast("Could not update","","err"); }
 }
 function fbSendResetFor(email){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   if(!email){ toast("No email on that account","","err"); return; }
   try{ _fb.app.auth().sendPasswordResetEmail(email).then(()=>toast("Reset email sent","To "+email,"ok",7000)).catch(e=>toast("Could not send",String((e&&e.code)||""),"err",7000)); }catch(e){ toast("Could not send","","err"); }
 }
@@ -4788,6 +4840,7 @@ function finalizeAuthMigration(){
   },"Finalize",true);
 }
 function renderUsers(){
+  if(!canAccessModule("users")){ moduleDenyToast(); return; }
   try{ if(typeof fbActive==="function" && fbActive() && !renderUsers._loaded){ renderUsers._loaded=true; fbLoadProfilesCache(true).then(()=>{ if(typeof CURRENT!=="undefined" && CURRENT==="users") renderUsers(); }); } }catch(e){}
   if(!isSuper()){ document.getElementById("content").innerHTML=`<div class="empty"><h4>Access restricted</h4><p>Only the Super Admin can manage users.</p></div>`; return; }
   document.getElementById("content").innerHTML=`
@@ -4859,6 +4912,7 @@ async function fbCommitRoleAtomic(legacyId, role){
   }catch(e){ return {ok:false, error:String((e&&(e.code||e.message))||"batch-failed")}; }
 }
 async function saveUser(uid_){
+  if(!isSuper()){ toast("Not permitted","Only a Super Administrator can manage user accounts.","err",7000); return; }
   const id=document.getElementById("u_id").value.trim(), name=document.getElementById("u_name").value.trim(), pass=document.getElementById("u_pass").value;
   const roleSel=canonRole(document.getElementById("u_role").value);
   const title=(document.getElementById("u_title").value||"").trim(), tgChatId=(document.getElementById("u_tgchat").value||"").trim();
@@ -4915,6 +4969,7 @@ function deleteUser(id){ if(!isSuperSession()){ toast("Not permitted","Only a Su
    SETTINGS + RESET
 ============================================================ */
 function renderSettings(){
+  if(!canAccessModule("settings")){ moduleDenyToast(); return; }
   const dark=document.documentElement.getAttribute("data-theme")==="dark";
   document.getElementById("content").innerHTML=`
     <div class="card" style="max-width:720px"><div class="card-head"><h3>Appearance</h3></div><div class="card-body">
@@ -5052,15 +5107,21 @@ function handle(p){
         <button class="btn btn-danger" onclick="openResetModal()">Reset Data</button></div>
     </div></div>`:""}`;
 }
-function saveSettings(){ DB.settings.orgName=document.getElementById("set_org").value.trim(); DB.settings.currency=document.getElementById("set_cur").value.trim()||"USD"; saveDB(); toast("Settings saved","","ok"); }
+function saveSettings(){ if(!isSuper()){ toast("Not permitted","Only a Super Administrator can change Settings.","err",7000); return; } DB.settings.orgName=document.getElementById("set_org").value.trim(); DB.settings.currency=document.getElementById("set_cur").value.trim()||"USD"; saveDB(); toast("Settings saved","","ok"); }
 function uploadSavedSig(which,input){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   const f=input.files[0]; if(!f)return;
   const reader=new FileReader();
   reader.onload=e=>{ DB.settings[which==="prep"?"prepSig":"apprSig"]=e.target.result; saveDB(); renderSettings(); toast("Signature uploaded","","ok"); };
   reader.readAsDataURL(f); input.value="";
 }
-function clearSavedSig(which){ DB.settings[which==="prep"?"prepSig":"apprSig"]=""; saveDB(); renderSettings(); toast("Signature removed","","ok"); }
+function clearSavedSig(which){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+ DB.settings[which==="prep"?"prepSig":"apprSig"]=""; saveDB(); renderSettings(); toast("Signature removed","","ok"); }
 function saveSigSettings(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   const gv=id=>{ const el=document.getElementById(id); return el?el.value:""; };
   DB.settings.defaultPreparerId=gv("set_defPrep");
   DB.settings.defaultApproverId=gv("set_defAppr");
@@ -5072,6 +5133,8 @@ function saveSigSettings(){
   saveDB(); toast("Approval chain saved","","ok");
 }
 function saveSyncSettings(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   DB.settings.gsUrl=document.getElementById("set_gsUrl").value.trim();
   DB.settings.gsKey=document.getElementById("set_gsKey").value.trim();
   DB.settings.gsInterval=Math.max(15,Number(document.getElementById("set_gsInterval").value)||30);
@@ -5080,6 +5143,8 @@ function saveSyncSettings(){
   toast("Sync settings saved", syncConfigured()?"Auto-sync is "+(DB.settings.gsAuto?"on":"off"):"Add the Web App URL to enable","ok");
 }
 function saveTelegramSettings(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   DB.settings.tgToken=document.getElementById("set_tgToken").value.trim();
   DB.settings.tgChat=document.getElementById("set_tgChat").value.trim();
   DB.settings.tgCaption=document.getElementById("set_tgCaption").value.trim()||"Purchase Order for your approval";
@@ -5089,6 +5154,8 @@ function saveTelegramSettings(){
   saveDB(); toast("Telegram settings saved","","ok");
 }
 async function testTelegram(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   const chat=(DB.settings.tgChat||"").trim();
   if(!tgAvailable()||!chat){ toast("Missing setup", proxyOn()?"Enter the Chat ID first":"Enter both Bot Token and Chat ID first","err"); return; }
   try{
@@ -5114,6 +5181,8 @@ async function telegramSendPDF(blob,filename,caption){
 }
 
 function openResetModal(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   openModal(`<div class="modal-head"><h3 style="color:var(--danger)">Reset All Data</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body">
     <div style="background:rgba(239,68,68,.1);border:1px solid var(--danger);border-radius:10px;padding:14px;margin-bottom:16px;color:var(--danger);font-weight:600;font-size:13px">⚠ This permanently deletes all records. This action cannot be undone.</div>
@@ -5125,6 +5194,8 @@ function openResetModal(){
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-danger" onclick="doReset()">Reset Everything</button></div>`,{size:"narrow"});
 }
 function doReset(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   const pass=document.getElementById("reset_pass").value;
   const me=DB.users.find(u=>u.id===SESSION.id);
   if(!me||me.password!==pass){ toast("Incorrect password","Reset cancelled","err"); return; }
@@ -5222,7 +5293,7 @@ function paintPO(){
         <button class="act-btn" title="Edit" onclick="openPOForm('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
         <button class="act-btn" title="PDF" onclick="downloadPOPdf('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
         <button class="act-btn" title="Excel" onclick="downloadPOExcel('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="17"/><line x1="16" y1="13" x2="8" y2="17"/></svg></button>
-        <button class="act-btn del" title="Delete" onclick="deletePO('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+        ${isSuper()?`<button class="act-btn del" title="Delete" onclick="deletePO('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}
       </div></td></tr>`;
     }).join("")
   }</tbody></table></div>`;
@@ -5545,7 +5616,9 @@ async function doSavePO(id){
   saveDB(); closeModal(); paintPO(); buildNav();
   if(typeof renderProcurement==="function" && CURRENT==="procurement" && document.getElementById("tableHost")) renderProcurement();
 }
-function deletePO(id){ const p=DB.po.find(x=>x.id===id); confirmModal("Delete purchase order?",`"${esc(p.poNo)}" will be permanently removed.`,()=>{ DB.po=DB.po.filter(x=>x.id!==id); saveDB(); paintPO(); buildNav(); toast("PO deleted","","ok"); },"Delete"); }
+function deletePO(id){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
+ const p=DB.po.find(x=>x.id===id); confirmModal("Delete purchase order?",`"${esc(p.poNo)}" will be permanently removed.`,()=>{ DB.po=DB.po.filter(x=>x.id!==id); saveDB(); paintPO(); buildNav(); toast("PO deleted","","ok"); },"Delete"); }
 /* ============================================================
    Purchase Order e-signatures (two-party: Prepared by + Approved by)
 ============================================================ */
@@ -6910,7 +6983,7 @@ function paintStock(){
       <td><div class="row-actions">
         <button class="act-btn" title="Stock In/Out" onclick="adjustStock('${s.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
         <button class="act-btn" title="Edit" onclick="openStockForm('${s.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
-        <button class="act-btn del" title="Delete" onclick="deleteStock('${s.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+        ${isSuper()?`<button class="act-btn del" title="Delete" onclick="deleteStock('${s.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}
       </div></td></tr>`;
     }).join("")
   }</tbody></table>`;
@@ -6946,7 +7019,9 @@ async function saveStock(id){
   if(id){ const i=DB.stock.findIndex(x=>x.id===id); DB.stock[i]=obj; toast("Stock item updated","","ok"); } else { DB.stock.unshift(obj); toast("Stock item added","","ok"); }
   saveDB(); closeModal(); paintStock(); buildNav();
 }
-function deleteStock(id){ const s=DB.stock.find(x=>x.id===id); confirmModal("Delete stock item?",`"${esc(s.name)}" will be permanently removed.`,()=>{ DB.stock=DB.stock.filter(x=>x.id!==id); saveDB(); paintStock(); buildNav(); toast("Item deleted","","ok"); },"Delete"); }
+function deleteStock(id){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
+ const s=DB.stock.find(x=>x.id===id); confirmModal("Delete stock item?",`"${esc(s.name)}" will be permanently removed.`,()=>{ DB.stock=DB.stock.filter(x=>x.id!==id); saveDB(); paintStock(); buildNav(); toast("Item deleted","","ok"); },"Delete"); }
 function adjustStock(id){
   const s=DB.stock.find(x=>x.id===id);
   openModal(`<div class="modal-head"><h3>Stock Movement — ${esc(s.name)}</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
@@ -7870,7 +7945,7 @@ function paintMaintRecords(){
         <td>${esc(r.provider||"—")}</td><td>${esc(r.technician||"—")}</td>
         <td><span class="status ${statusClass(st)}" style="${st==='Overdue'?'background:rgba(239,68,68,.15);color:#dc2626':''}">${st}</span></td>
         <td><div class="row-actions"><button class="act-btn" onclick="openMaintRecordForm('${r.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
-        <button class="act-btn del" onclick="deleteMaintRecord('${r.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td>
+        ${isSuper()?`<button class="act-btn del" onclick="deleteMaintRecord('${r.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}</div></td>
       </tr>`;}).join(""):`<tr><td colspan="16"><div class="empty"><h4>No maintenance records</h4><p>Add detailed service records to support the quarterly matrix.</p></div></td></tr>`}</tbody></table></div></div>`;
 }
 function openMaintRecordForm(id){
@@ -7919,6 +7994,8 @@ function saveMaintRecord(id){
   saveDB(); closeModal(); renderMaintenance();
 }
 function deleteMaintRecord(id){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
+
   const r=DB.maintenance.find(x=>x.id===id);
   confirmModal("Delete maintenance record?",`"${esc(r.name||r.mid||"record")}" will be removed.`,()=>{ DB.maintenance=DB.maintenance.filter(x=>x.id!==id); saveDB(); renderMaintenance(); toast("Deleted","","ok"); },"Delete");
 }
@@ -8423,7 +8500,7 @@ function paintWBS(p,host){
       <td class="num"><div style="display:flex;align-items:center;gap:5px;justify-content:flex-end">${progressBar(w.actual)}<span style="font-size:11px">${Number(w.actual)||0}%</span></div></td>
       <td>${conStatusTag(w.status||"Planning")}</td><td>${conPriorityTag(w.priority)}</td>
       <td><div class="row-actions"><button class="act-btn" onclick="openWBSForm('${w.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
-      <button class="act-btn del" onclick="deleteWBS('${w.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td>
+      ${isSuper()?`<button class="act-btn del" onclick="deleteWBS('${w.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}</div></td>
     </tr>`).join(""):`<tr><td colspan="13"><div class="empty"><h4>No work packages yet</h4><p>Add activities or load the standard work-package template.</p></div></td></tr>`}</tbody></table></div></div>`;
 }
 function loadWBSTemplate(){
@@ -8473,6 +8550,8 @@ async function saveWBS(wid){
   saveDB(); closeModal(); paintConstructionTabBody();
 }
 function deleteWBS(wid){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
+
   const p=conProject(_conProjectId);
   confirmModal("Delete activity?","",()=>{ p.wbs=p.wbs.filter(x=>x.id!==wid); recomputeConstructionProgress(p); saveDB(); paintConstructionTabBody(); toast("Deleted","","ok"); },"Delete");
 }
@@ -8609,7 +8688,7 @@ function paintConTeam(p,host){
     <div class="table-card"><table class="data" style="width:100%"><thead><tr><th>Name</th><th>Role</th><th>Email / Contact</th><th>Permission</th><th>Action</th></tr></thead>
     <tbody>${p.team.length?p.team.map(m=>`<tr><td><b>${esc(m.name)}</b></td><td>${esc(m.role)}</td><td>${esc(m.contact)||'<span class="muted">—</span>'}</td><td>${esc(m.permission||"View")}</td>
       <td><div class="row-actions"><button class="act-btn" onclick="openTeamForm('${m.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
-      <button class="act-btn del" onclick="deleteTeam('${m.id}')" title="Remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`).join(""):`<tr><td colspan="5"><div class="empty"><h4>No team members</h4><p>Assign people and their project roles.</p></div></td></tr>`}</tbody></table></div>`;
+      ${isSuper()?`<button class="act-btn del" onclick="deleteTeam('${m.id}')" title="Remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}</div></td></tr>`).join(""):`<tr><td colspan="5"><div class="empty"><h4>No team members</h4><p>Assign people and their project roles.</p></div></td></tr>`}</tbody></table></div>`;
 }
 function openTeamForm(mid){
   const p=conProject(_conProjectId); const m=mid?p.team.find(x=>x.id===mid):null;
@@ -8630,7 +8709,9 @@ function saveTeam(mid){
   if(mid){ Object.assign(p.team.find(x=>x.id===mid),obj); } else { obj.id=uid(); p.team.push(obj); }
   saveDB(); closeModal(); paintConstructionTabBody(); toast("Saved","","ok");
 }
-function deleteTeam(mid){ const p=conProject(_conProjectId); p.team=p.team.filter(x=>x.id!==mid); saveDB(); paintConstructionTabBody(); }
+function deleteTeam(mid){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
+ const p=conProject(_conProjectId); p.team=p.team.filter(x=>x.id!==mid); saveDB(); paintConstructionTabBody(); }
 
 /* ----- Generic record tabs (scope, variations, payments, rfi, etc.) ----- */
 function paintProjectRecords(p,tab,host){
@@ -8643,7 +8724,7 @@ function paintProjectRecords(p,tab,host){
     <tbody>${recs.length?recs.filter(r=>!_recSearch||JSON.stringify(r).toLowerCase().includes(_recSearch.toLowerCase())).map(r=>`<tr>${cfg.fields.map(f=>`<td ${f[2]===1?'class="num"':''}>${cell(r,f)}</td>`).join("")}
       <td>${(r.files&&r.files.length)?`<span class="file-chip" style="cursor:pointer" onclick="viewRecordFiles('${tab}','${r.id}')">📎 ${r.files.length} file(s)</span>`:'<span class="muted">—</span>'}</td>
       <td><div class="row-actions"><button class="act-btn" onclick="openRecordTabForm('${tab}','${r.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
-      <button class="act-btn del" onclick="deleteRecordTab('${tab}','${r.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td>
+      ${isSuper()?`<button class="act-btn del" onclick="deleteRecordTab('${tab}','${r.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>`:""}</div></td>
     </tr>`).join(""):`<tr><td colspan="${cfg.fields.length+2}"><div class="empty"><h4>No ${cfg.title} records</h4><p>Click “Add ${cfg.title}” to create one.</p></div></td></tr>`}</tbody></table></div></div>`;
 }
 let _recSearch="";
@@ -8696,6 +8777,7 @@ async function saveRecordTab(tab,rid){
   _conStagedFiles=[]; saveDB(); closeModal(); paintConstructionTabBody();
 }
 function deleteRecordTab(tab,rid){
+  if(!isSuper()){ toast("Not permitted","Deleting stored records requires a Super Administrator.","err",7000); return; }
   const p=conProject(_conProjectId);
   confirmModal("Delete record?","",()=>{ p[tab]=p[tab].filter(x=>x.id!==rid); saveDB(); paintConstructionTabBody(); toast("Deleted","","ok"); },"Delete");
 }
@@ -8851,6 +8933,7 @@ function downloadReportPDF(){
    BACKUP / RESTORE / TELEGRAM
 ============================================================ */
 function renderBackup(){
+  if(!canAccessModule("backup")){ moduleDenyToast(); return; }
   const used=dbStorageBytes(); const usedMB=(used/1024/1024).toFixed(2);
   const softLimit=5*1024*1024; // strictest browsers cap localStorage near 5 MB (Chrome/Edge allow ~10 MB)
   const pct=Math.min(100,Math.round(used/softLimit*100));
@@ -8873,11 +8956,11 @@ function renderBackup(){
     <div class="card" style="margin-bottom:16px"><div class="card-head"><h3>Sync Status</h3></div><div class="card-body">
       <div id="syncStatusBody" class="muted" style="font-size:12.5px">Checking the Google Sheet…</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn btn-primary btn-sm" onclick="pullLatestSmart()">Pull latest (safe)</button>
-        <button class="btn btn-ghost btn-sm" onclick="fbShowSyncDiagnostics()">Sync Diagnostics</button>
-        <button class="btn btn-ghost btn-sm" onclick="fbRebuildConfirm()">Rebuild cache from Firebase (read-only)</button>
-        <button class="btn btn-ghost btn-sm" onclick="syncPush(false).then(()=>updateSyncStatusCard())">Push now (verified)</button>
-        <button class="btn btn-ghost btn-sm" style="color:#6b7280;border-color:#6b728055" onclick="forceSyncPullLegacy()">Force pull from Sheet (legacy — not production authority)</button>
+        <button class="btn btn-primary btn-sm" onclick="backupPullLatest()">Pull latest (safe)</button>
+        <button class="btn btn-ghost btn-sm" onclick="backupDiagnostics()">Sync Diagnostics</button>
+        <button class="btn btn-ghost btn-sm" onclick="backupRebuild()">Rebuild cache from Firebase (read-only)</button>
+        <button class="btn btn-ghost btn-sm" onclick="backupPushNow()">Push now (verified)</button>
+        <button class="btn btn-ghost btn-sm" style="color:#6b7280;border-color:#6b728055" onclick="backupForcePull()">Force pull from Sheet (legacy — not production authority)</button>
       </div>
       <p class="muted" style="font-size:11.5px;margin:10px 0 0">If two devices show different numbers: on the device with the GOOD data press <b>Push now</b>, then on the other press <b>Force pull</b>.</p>
     </div></div>
@@ -9074,6 +9157,8 @@ function openAwardWorkflowConfig(){
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveAwardWorkflowConfig()">Save Configuration</button></div>`);
 }
 async function saveAwardWorkflowConfig(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   await fbLoadProfilesCache(true);   // v8.11.1: newly linked profiles are always fresh at save time
   const pick=id=>{ const lid=document.getElementById(id).value; if(!lid) return null;
     const ra=resolveUserAssignment(lid);   // the canonical identity resolver (same as role management)
@@ -9779,6 +9864,8 @@ async function buildBackupObject(){
   return Object.assign({}, DB, {__files:files, __backupVersion:2});
 }
 async function exportJSON(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   toast("Preparing backup","Gathering attachments…","ok");
   try{
     const obj=await buildBackupObject();
@@ -9788,7 +9875,7 @@ async function exportJSON(){
     toast("Backup exported", n?("JSON + "+n+" attachment(s) included"):"JSON downloaded","ok");
   }catch(e){ console.error(e); toast("Backup failed","Could not build backup","err"); }
 }
-function importJSON(input){
+function importJSON(input){ if(!isSuper()){ toast("Not permitted","Backup & Restore requires a Super Administrator.","err",7000); try{input.value="";}catch(e){} return; }
   if(typeof fbActive==="function" && fbActive() && !importJSON._confirmed){
     confirmModal("Replace ALL data on EVERY device?","A full import replaces everything with the backup's contents — and live sync carries that replacement (including deletions of anything newer than the backup) to the cloud and all devices.<br><br><b>To recover only the quarterly maintenance grids, use \"Restore quarterly grids only\" instead.</b><br><br>Continue with the FULL import?",()=>{ importJSON._confirmed=true; try{ importJSON(input); } finally { importJSON._confirmed=false; } },"Yes, replace everything",true);
     return;
@@ -9815,6 +9902,8 @@ function importJSON(input){
   reader.readAsText(f); input.value="";
 }
 function exportExcel(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   const wb=XLSX.utils.book_new();
   const flat=r=>({Name:r.name,Campus:r.campus,Category:r.category,PR:r.pr,Quote:r.quote,PO:r.po,Supplier:r.supplier,Budget:r.budget,Status:r.status,Due:r.due,Confirmation:r.confirm,Deposit:r.deposit,DepositINV:r.depositInv,FinalPayment:r.finalPay,FinalINV:r.finalInv,Remarks:r.remarks});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(DB.procurement.map(flat)),"Procurement");
@@ -9830,7 +9919,7 @@ function exportExcel(){
   XLSX.writeFile(wb,`pmpts-backup-${new Date().toISOString().slice(0,10)}.xlsx`);
   toast("Excel exported","Workbook downloaded","ok");
 }
-function importExcel(input){
+function importExcel(input){ if(!isSuper()){ toast("Not permitted","Backup & Restore requires a Super Administrator.","err",7000); try{input.value="";}catch(e){} return; }
   const f=input.files[0]; if(!f)return; const reader=new FileReader();
   reader.onload=e=>{ try{
     const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
@@ -9850,6 +9939,8 @@ function importExcel(input){
 
 /* Telegram */
 function backupTelegramChoice(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   openModal(`<div class="modal-head"><h3>Send Backup</h3><button class="act-btn" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
   <div class="modal-body"><p class="muted" style="margin-bottom:14px">Choose how to handle this backup:</p>
     <div class="radio-group">
@@ -9862,6 +9953,8 @@ function backupTelegramChoice(){
 }
 function selRadio(el,val){ el.parentElement.querySelectorAll(".radio-opt").forEach(o=>o.classList.remove("sel")); el.classList.add("sel"); el.querySelector("input").checked=true; window._bkChoice=val; }
 function execBackupChoice(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   const c=window._bkChoice; closeModal();
   if(c==="download"||c==="both") exportJSON();
   if(c==="telegram"||c==="both") sendToTelegram(backupBlob(),`pmpts-backup-${Date.now()}.json`,"📦 System backup");
@@ -9895,6 +9988,8 @@ async function sendToTelegram(blob,filename,caption){
   }
 }
 async function testTelegram(){
+  if(!isSuper()){ toast("Not permitted","This action requires a Super Administrator.","err",7000); return; }
+
   if(!tgAvailable()){ toast("Telegram not configured","","warn"); return; }
   toast("Testing connection...","Checking bot & channel","ok");
   try{
