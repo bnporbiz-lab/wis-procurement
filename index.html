@@ -870,6 +870,19 @@ function latestUniformPeriod(){
   return periods.length?periods[periods.length-1]:UNIFORM_BASE_PERIOD;
 }
 function prevPeriod(period){ let [y,m]=period.split("-").map(Number); m--; if(m<1){m=12;y--;} return y+"-"+String(m).padStart(2,"0"); }
+const RECV_DEFERRED = ["Partially Received","Fully Received","Partially Delivered","Delivered"]; /* v8.13.4 RECEIVING DEFERRED */
+/* rev2: ONE shared client transition guard for Procurement save, PO save, kanban drop, Close Record. */
+function recvTransitionCheck(oldS,newS){
+  const o=oldS||null, n=newS||"";
+  if(n===o) return {ok:true};
+  if(!RECV_DEFERRED.includes(n) && !RECV_DEFERRED.includes(o||"")) return {ok:true};
+  if(RECV_DEFERRED.includes(n)) return {ok:false};
+  const adminUp=SESSION&&(SESSION.role==="admin"||SESSION.role==="superadmin");
+  const rec=(((o==="Partially Received"||o==="Partially Delivered")&&n==="In Transit")
+          ||((o==="Fully Received"||o==="Delivered")&&n==="Completed"));
+  return {ok:!!(adminUp&&rec)};
+}
+function recvDenyToast(){ toast("Status not changed","Goods Receiving is not available in this release.","err",7000); }
 const PROC_STATUSES = ["To Do","Requesting Quotation","Quotation Received","Pending Approval","Approved","In Progress","Ordered","Partially Delivered","Delivered","Completed","On Hold","Cancelled"];
 
 // New canonical workflow stages first, then any legacy status still present in the data (never lose an existing value).
@@ -2107,7 +2120,7 @@ function canMutateRecord(r){
 }
 
 /* ---- App version + update history ("version series") ---- */
-const APP_VERSION = "v8.13.3";
+const APP_VERSION = "v8.13.4";
 const CHANGELOG = [
   { v:"v8.9.3", date:"Aug 2026", notes:[
     "Child → Purchase Order: the Child edit form's PO Number field is now read-only (auto-filled only) with an action beside it — “+ Create Purchase Order” when none is linked, or “View Purchase Order (number)” when one exists",
@@ -3286,7 +3299,7 @@ function openChildForm(parentDocId){
       <div class="field"><label>Quotation Amount</label><input id="c_quotationAmount" type="number" step="0.01" min="0"></div>
       <div class="field"><label>PO / Committed Amount</label><input id="c_committedAmount" type="number" step="0.01" min="0"></div>
       <div class="field"><label>Actual Expense</label><input id="c_actualAmount" type="number" step="0.01" min="0"></div>
-      <div class="field"><label>Status</label><select id="c_status">${PROC_STATUSES.filter(s=>s!=="Approved").map(s=>`<option>${s}</option>`).join("")}</select></div>
+      <div class="field"><label>Status</label><select id="c_status">${PROC_STATUSES.filter(s=>s!=="Approved"&&!RECV_DEFERRED.includes(s)).map(s=>`<option>${s}</option>`).join("")}</select></div>
       ${!isEntrySession()?`<div class="field"><label class="req">Assigned to <span class="muted" style="font-weight:400;font-size:11px">— one member of the Parent team</span></label><select id="c_assign">${userOpts||'<option value="">— team is empty: edit the Parent first —</option>'}</select></div>`
         :`<div class="field"><label>Assigned to</label><input value="${esc((SESSION&&SESSION.name)||"")} (you)" disabled></div>`}
       <div class="field" style="grid-column:1/-1"><label>Remarks</label><input id="c_remarks"></div>
@@ -3677,6 +3690,10 @@ function procDropStage(ev,stage){
   const id=ev.dataTransfer.getData("text/plain"); const r=DB.procurement.find(x=>x.id===id); if(!r) return;
   if(isEntry() && !canMutateRecord(r)){ toast("Not your record","A Data Entry account can only move records assigned to it.","err",6000); return; }
   if(procStage(r)===stage) return;
+  { /* rev2: shared guard */
+    if(!recvTransitionCheck(procStage(r),stage).ok){
+      toast("Stage not changed","Goods Receiving is not available in this release.","err",7000); return; }
+  }
   r.status=stage; r.updated=Date.now();
   r.history=r.history||[]; r.history.push({at:Date.now(),by:(SESSION&&SESSION.name)||"System",action:"Stage changed to "+stage});
   saveDB(); renderProcurement(); toast("Stage updated",r.name+" → "+stage,"ok");
@@ -3824,6 +3841,8 @@ function procDuplicate(id){
   DB.procurement.unshift(copy); saveDB(); closeProcDrawer(); renderProcurement(); buildNav(); toast("Record duplicated","","ok");
 }
 function procCloseRecord(id){
+  { const _r=(DB.procurement||[]).find(x=>x.id===id);
+    if(_r && !recvTransitionCheck(_r.status||null,"Completed").ok){ recvDenyToast(); return; } }
   const r=DB.procurement.find(x=>x.id===id); if(!r) return;
   if(!canMutateRecord(r)){ toast(isEntry()?"Not your record":"View-only account", isEntry()?"A Data Entry account can only close records assigned to it.":"","err",6000); return; }
   confirmModal("Close this record?",`“${esc(r.name)}” will be marked Completed.`,()=>{
@@ -4198,7 +4217,7 @@ function openRecordForm(set,id,defaultStatus){
             <option value="standalone" selected>Standalone</option>
             <option value="parent">Parent Procurement (multi-supplier)</option>
           </select></div>`:""}
-        <div class="field"><label class="req">Status</label><select id="f_status">${statusOpts.map(s=>`<option ${curStatus===s?'selected':''}>${s}</option>`).join("")}</select></div>
+        <div class="field"><label class="req">Status</label><select id="f_status">${statusOpts.filter(s=>s===curStatus||set!=="procurement"||!RECV_DEFERRED.includes(s)).map(s=>`<option ${curStatus===s?'selected':''}>${s}</option>`).join("")}</select></div>
         ${isProc?respAssignField(r):""}
         <div class="field"><label>Due Date</label><input type="date" id="f_due" value="${r?.due||''}"></div>
         <div class="field"><label>Confirmed Date</label><input type="date" id="f_confirm" value="${r?.confirm||''}"></div>
@@ -4336,6 +4355,12 @@ function findProcDuplicates(id,vals){
   return out;
 }
 async function doSaveRecord(set,id){
+  if(set==="procurement"){ /* rev2 guard: BEFORE file persistence and any mutation; deny = save nothing */
+    const _prev=id?((DB.procurement||[]).find(r=>r.id===id)||null):null;
+    const _el=document.getElementById("f_status");
+    const _ns=_el?_el.value:(_prev?(_prev.status||""):"");
+    if(!recvTransitionCheck(_prev?(_prev.status||null):null,_ns).ok){ recvDenyToast(); return; }
+  }
   const g=n=>{ const el=document.getElementById("f_"+n); return el?el.value:""; };
   const budget=g("budget");
   const numOrEmpty=v=>v===""||v==null||isNaN(v)?"":Number(v);
@@ -5321,7 +5346,7 @@ function openPOForm(id,draft){
     <div class="field"><label>Quote Description</label><input id="po_quoteDesc" value="${esc(p?.quoteDesc||'')}" placeholder="e.g. Repair color printer"></div>
     <div class="field"><label>Supplier</label><select id="po_supplier"><option value="">— Select —</option>${(p&&p.supplier&&!DB.suppliers.some(s=>s.name===p.supplier))?`<option selected>${esc(p.supplier)}</option>`:""}${DB.suppliers.map(s=>`<option ${p?.supplier===s.name?'selected':''}>${esc(s.name)}</option>`).join("")}</select></div>
     <div class="field"><label>Campus / Project</label><select id="po_campus"><option value="">Select Campus/Project</option>${PROC_CAMPUSES.map(c=>`<option ${p?.campus===c?'selected':''}>${c}</option>`).join("")}</select></div>
-    <div class="field"><label class="req">Status</label><select id="po_status">${PO_STATUS.map(s=>`<option ${p?.status===s?'selected':''}>${s}</option>`).join("")}</select></div>
+    <div class="field"><label class="req">Status</label><select id="po_status">${PO_STATUS.filter(s=>s===(p?p.status:null)||!RECV_DEFERRED.includes(s)).map(s=>`<option ${p?.status===s?'selected':''}>${s}</option>`).join("")}</select></div>
     <div class="field"><label>Order Date</label><input type="date" id="po_orderDate" value="${p?.orderDate||''}"></div>
     <div class="field"><label>Responsible / Assigned to <span class="muted" style="font-weight:400;font-size:11px">— inherits from the linked record</span></label>
       <select id="po_responsible_sel" ${isEntrySession()?"disabled":""} onchange="this.dataset.touched='1'"><option value="">— unassigned (admins only can edit) —</option>${DB.users.map(u=>`<option value="${esc(u.id)}" ${(p&&p.assignedToId===u.id)?"selected":""}>${esc(u.name)}${u.title?(" — "+esc(u.title)):""}</option>`).join("")}${(p&&p.assignedToId&&!DB.users.some(u=>u.id===p.assignedToId))?`<option value="${esc(p.assignedToId)}" selected>${esc(p.assignedToName||p.assignedToId)}</option>`:""}</select></div>
@@ -5392,6 +5417,12 @@ function backfillProcPONumbers(force){
   return filled;
 }
 async function doSavePO(id){
+  { /* rev2 guard: BEFORE file persistence and any local/Firebase mutation; deny = save nothing */
+    const _prev=id?((DB.po||[]).find(x=>x.id===id)||null):null;
+    const _el=document.getElementById("po_status");
+    const _ns=_el?_el.value:(_prev?(_prev.status||""):"");
+    if(!recvTransitionCheck(_prev?(_prev.status||null):null,_ns).ok){ recvDenyToast(); return; }
+  }
   if(typeof isEntrySession==="function" && isEntrySession() && !id && !_poFromRecord){
     toast("PO not saved","Entry accounts create POs only from an assigned procurement record.","err",8000); return;
   }
